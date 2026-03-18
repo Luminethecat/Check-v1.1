@@ -1,0 +1,639 @@
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+// Supabase配置（替换为自己的项目信息）
+const SUPABASE_URL = 'https://ufdwkrexvfceztrnuvrm.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVmZHdrcmV4dmZjZXp0cm51dnJtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDAzNTczNiwiZXhwIjoyMDg1NjExNzM2fQ.cm34oWvD0Oc8KP83uDE53R5Xcmcd34y4Xb-VzcvKz4g';
+
+// 初始化Supabase客户端
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// 统一响应格式工具
+const resJson = (code = 200, msg = 'success', data = {}) => {
+  return new Response(JSON.stringify({ code, msg, data }), {
+    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+  });
+};
+
+// 时间转换：提取北京时间（去除时区后缀，适配数据库存储格式）
+const convertToBeijingTime = (timeStr) => {
+  if (!timeStr || typeof timeStr !== 'string') return '';
+  try {
+    return timeStr.split('+')[0].replace('T', ' ').trim();
+  } catch (e) {
+    console.error(`时间转换失败：${e.message}`);
+    return '';
+  }
+};
+
+// 时间转分钟数（用于考勤规则判定，如09:00→540分钟）
+const timeToMins = (timeStr) => {
+  const timePart = timeStr.split(' ')[1];
+  if (!timePart) {
+    console.error(`时间格式错误（无时间部分）：${timeStr}`);
+    return 0;
+  }
+  const [h, m] = timePart.split(':').map(Number);
+  if (isNaN(h) || isNaN(m)) {
+    console.error(`时间数值错误：${timeStr}`);
+    return 0;
+  }
+  return h * 60 + m;
+};
+
+// 格式化日期为YYYY-MM-DD（用于按日期分组统计考勤）
+const formatDate = (timeStr) => {
+  return timeStr.split(' ')[0] || '';
+};
+
+// 判定是否为远程打卡（通过描述关键词）
+const isRemoteCheck = (desc) => {
+  if (!desc || typeof desc !== 'string') return false;
+  return desc.includes('远程');
+};
+
+// 主请求处理函数
+Deno.serve(async (req) => {
+  try {
+    const { action, ...params } = await req.json();
+    console.log('接收到请求：', action, params);
+
+    // 获取考勤规则（优先从数据库读取，无数据则用默认值）
+    const { data: ruleData, error: ruleErr } = await supabase
+      .from('attendance_rule')
+      .select('work_time, late_mins, work_off_time, early_mins')
+      .eq('id', 1)
+      .single();
+    const DEFAULT_RULE = { work_time: '09:00', late_mins: 15, work_off_time: '18:00', early_mins: 15 };
+    const rule = ruleErr ? DEFAULT_RULE : ruleData;
+    const workTime = rule.work_time || DEFAULT_RULE.work_time;
+    const lateMins = typeof rule.late_mins === 'number' ? rule.late_mins : DEFAULT_RULE.late_mins;
+    const workOffTime = rule.work_off_time || DEFAULT_RULE.work_off_time;
+    const earlyMins = typeof rule.early_mins === 'number' ? rule.early_mins : DEFAULT_RULE.early_mins;
+
+    // 转换考勤规则为分钟数（便于时间比较）
+    const workMins = timeToMins(`2020-01-01 ${workTime}`);
+    const lateLimitMins = workMins + lateMins;
+    const workOffMins = timeToMins(`2020-01-01 ${workOffTime}`);
+    const earlyLimitMins = workOffMins - earlyMins;
+
+    // 1. 管理员登录
+    if (action === 'admin_login') {
+      const { username, password } = params;
+      if (!username || !password) return resJson(400, '请输入账号和密码');
+      const { data: admin, error } = await supabase
+        .from('admin')
+        .select('username')
+        .eq('username', username)
+        .eq('password', password)
+        .single();
+      if (error || !admin) return resJson(401, '账号或密码错误');
+      return resJson(200, '管理员登录成功');
+    }
+
+    // 2. 员工登录
+    if (action === 'user_login') {
+      const { user_id, password } = params;
+      if (!user_id || !password) return resJson(400, '请输入员工UID和密码');
+      const { data: userInfo, error } = await supabase
+        .from('employee')
+        .select('user_id, name')
+        .eq('user_id', user_id)
+        .eq('password', password)
+        .single();
+      if (error || !userInfo) return resJson(401, '员工UID或密码错误');
+      return resJson(200, '员工登录成功', { userInfo });
+    }
+
+    // 3. 管理员修改密码
+    if (action === 'admin_change_pwd') {
+      const { username, oldPwd, newPwd } = params;
+      if (!username || !oldPwd || !newPwd) return resJson(400, '请输入用户名、原密码和新密码');
+      
+      // 验证原密码
+      const { data: admin, error: queryError } = await supabase
+        .from('admin')
+        .select('password')
+        .eq('username', username)
+        .single();
+      if (queryError || !admin) return resJson(404, '管理员不存在');
+      if (admin.password !== oldPwd) return resJson(401, '原密码错误');
+      
+      // 更新新密码
+      const { error: updateError } = await supabase
+        .from('admin')
+        .update({ password: newPwd })
+        .eq('username', username);
+      if (updateError) return resJson(500, '修改管理员密码失败', { error: updateError.message });
+      
+      return resJson(200, '管理员密码修改成功');
+    }
+
+    // 4. 员工修改密码
+    if (action === 'user_change_pwd') {
+      const { user_id, oldPwd, newPwd } = params;
+      if (!user_id || !oldPwd || !newPwd) return resJson(400, '请输入员工UID、原密码和新密码');
+      
+      // 验证原密码
+      const { data: employee, error: queryError } = await supabase
+        .from('employee')
+        .select('password')
+        .eq('user_id', user_id)
+        .single();
+      if (queryError || !employee) return resJson(404, '员工不存在');
+      if (employee.password !== oldPwd) return resJson(401, '原密码错误');
+      
+      // 更新新密码
+      const { error: updateError } = await supabase
+        .from('employee')
+        .update({ password: newPwd })
+        .eq('user_id', user_id);
+      if (updateError) return resJson(500, '修改员工密码失败', { error: updateError.message });
+      
+      return resJson(200, '员工密码修改成功');
+    }
+
+    // 5. 员工管理 - 查询所有员工
+    if (action === 'emp_list') {
+      const { data: list, error } = await supabase
+        .from('employee')
+        .select('id, user_id, name, dept')
+        .order('id', { ascending: false });
+      if (error) return resJson(500, '查询员工失败', { error: error.message });
+      return resJson(200, '查询员工成功', { list });
+    }
+
+    // 6. 员工管理 - 新增员工
+    if (action === 'emp_add') {
+      const { user_id, name, dept, password = '123456' } = params;
+      if (!user_id || !name) return resJson(400, '请输入员工UID和姓名');
+      const { data: exist } = await supabase
+        .from('employee')
+        .select('user_id')
+        .eq('user_id', user_id)
+        .single();
+      if (exist) return resJson(400, '该员工UID已存在');
+      const { error } = await supabase
+        .from('employee')
+        .insert({ user_id, name, dept, password });
+      if (error) return resJson(500, '新增员工失败', { error: error.message });
+      return resJson(200, '新增员工成功');
+    }
+
+    // 7. 员工管理 - 修改员工信息
+    if (action === 'emp_update') {
+      const { id, user_id, name, dept } = params;
+      if (!id || !user_id || !name) return resJson(400, '请输入员工ID、UID和姓名');
+      const { error } = await supabase
+        .from('employee')
+        .update({ user_id, name, dept })
+        .eq('id', id);
+      if (error) return resJson(500, '修改员工失败', { error: error.message });
+      return resJson(200, '修改员工成功');
+    }
+
+    // 8. 员工管理 - 删除员工
+    if (action === 'emp_delete') {
+      const { id } = params;
+      if (!id) return resJson(400, '请传入员工ID');
+      const { error } = await supabase
+        .from('employee')
+        .delete()
+        .eq('id', id);
+      if (error) return resJson(500, '删除员工失败', { error: error.message });
+      return resJson(200, '删除员工成功');
+    }
+
+    // 9. 员工管理 - 重置密码
+    if (action === 'emp_reset_pwd') {
+      const { id, defaultPwd = '123456' } = params;
+      if (!id) return resJson(400, '请传入员工ID');
+      const { error } = await supabase
+        .from('employee')
+        .update({ password: defaultPwd })
+        .eq('id', id);
+      if (error) return resJson(500, '重置密码失败', { error: error.message });
+      return resJson(200, '重置密码成功');
+    }
+
+    // 10. 打卡记录 - 员工个人打卡记录查询
+    if (action === 'att_user_list') {
+      const { user_id, startTime, endTime } = params;
+      if (!user_id || !startTime || !endTime) return resJson(400, '缺少参数：user_id/startTime/endTime');
+      
+      // 查询原始打卡记录
+      const { data: rawList, error } = await supabase
+        .from('attendance')
+        .select('check_time, check_type_desc, device_id')
+        .eq('user_id', user_id)
+        .gte('check_time', `${startTime} 00:00:00`)
+        .lte('check_time', `${endTime} 23:59:59`)
+        .order('check_time', { ascending: true });
+      if (error) return resJson(500, '查询打卡记录失败', { error: error.message });
+
+      // 按日期分组处理打卡记录
+      const dayMap = {};
+      rawList.forEach(item => {
+        const date = formatDate(item.check_time);
+        const beijingTime = convertToBeijingTime(item.check_time);
+        const timePart = beijingTime.split(' ')[1]?.slice(0, 5) || '';
+        const timeMins = timeToMins(item.check_time);
+        
+        if (!dayMap[date]) dayMap[date] = { date, checkList: [], work: {}, off: {} };
+        dayMap[date].checkList.push(item);
+        
+        // 判定上班打卡状态
+        if (timeMins <= lateLimitMins && !dayMap[date].work.time) {
+          dayMap[date].work = {
+            time: timePart,
+            status: timeMins > workMins ? '迟到' : '正常',
+            desc: item.check_type_desc || '上班打卡'
+          };
+        }
+        // 判定下班打卡状态
+        if (timeMins >= earlyLimitMins && !dayMap[date].off.time) {
+          dayMap[date].off = {
+            time: timePart,
+            status: timeMins < workOffMins ? '早退' : '正常',
+            desc: item.check_type_desc || '下班打卡'
+          };
+        }
+      });
+
+      const list = Object.values(dayMap).sort((a, b) => new Date(b.date) - new Date(a.date));
+      return resJson(200, '查询个人打卡记录成功', list);
+    }
+
+    // 11. 打卡记录 - 管理员全量打卡记录查询（分页）
+    if (action === 'att_admin_list') {
+      const { page = 1, size = 20, user_id, startTime, endTime } = params;
+      const offset = (page - 1) * size;
+      
+      try {
+        let query = supabase
+          .from('attendance')
+          .select(`id, check_time, check_type_desc, device_id, user_id`, { count: 'exact' })
+          .order('check_time', { ascending: false });
+        
+        if (user_id) query = query.eq('user_id', user_id);
+        if (startTime) query = query.gte('check_time', `${startTime} 00:00:00`);
+        if (endTime) query = query.lte('check_time', `${endTime} 23:59:59`);
+        
+        const { data: rawList, error: attError, count } = await query.range(offset, offset + size - 1);
+        if (attError) return resJson(500, '查询打卡记录失败', { error: attError.message });
+
+        // 关联员工姓名
+        const userIds = [...new Set(rawList.map(item => item.user_id).filter(uid => uid))];
+        let empList = [];
+        if (userIds.length > 0) {
+          const { data: empData } = await supabase
+            .from('employee')
+            .select('user_id, name');
+          empList = Array.isArray(empData) ? empData : [];
+        }
+        const empMap = {};
+        empList.forEach(emp => empMap[emp.user_id] = emp?.name || '未知员工');
+
+        const list = rawList.map(item => ({
+          ...item,
+          employee: {
+            user_id: item.user_id,
+            name: empMap[item.user_id] || '未知员工'
+          }
+        }));
+        return resJson(200, '查询全量打卡记录成功', { list, total: count || 0 });
+      } catch (err) {
+        return resJson(500, '查询打卡记录失败', { error: err.message });
+      }
+    }
+
+    // 12. 打卡记录 - 新增打卡记录（关联员工信息）
+    if (action === 'att_add') {
+      const { device_id, user_id, check_time, check_type_code = '01', check_type_desc = '上班打卡' } = params;
+      const missingParams = [];
+      if (!device_id) missingParams.push('device_id');
+      if (!user_id) missingParams.push('user_id');
+      if (!check_time) missingParams.push('check_time');
+      if (missingParams.length > 0) {
+        console.error(`参数缺失：${missingParams.join(',')}`);
+        return resJson(400, `缺少参数：${missingParams.join(',')}`);
+      }
+
+      // 格式化打卡时间（去除时区后缀，确保格式正确）
+      const beijingCheckTime = check_time.split('+')[0];
+      const isValidTime = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(beijingCheckTime);
+      if (!isValidTime) {
+        console.error(`时间格式错误：${check_time}，需为YYYY-MM-DD HH:mm:ss`);
+        return resJson(400, '打卡时间格式错误，需为YYYY-MM-DD HH:mm:ss');
+      }
+
+      // 查询员工信息（关联姓名、部门）
+      const { data: empInfo, error: empError } = await supabase
+        .from('employee')
+        .select('name, dept')
+        .eq('user_id', user_id)
+        .single();
+      if (empError || !empInfo) {
+        console.error(`未查询到user_id=${user_id}对应的员工信息`);
+        return resJson(404, `未找到user_id=${user_id}的员工信息，请先添加该员工`);
+      }
+
+      // 插入打卡记录
+      const { error: insertError } = await supabase
+        .from('attendance')
+        .insert({ 
+          device_id,
+          user_id,
+          check_time: beijingCheckTime,
+          check_type_code,
+          check_type_desc,
+          emp_name: empInfo.name,
+          emp_dept: empInfo.dept
+        });
+      if (insertError) {
+        console.error(`插入打卡记录失败：${insertError.message}`);
+        return resJson(500, '新增打卡记录失败：' + insertError.message);
+      }
+
+      return resJson(200, '新增打卡记录成功（已填充员工信息）', { beijingCheckTime, emp_name: empInfo.name, emp_dept: empInfo.dept });
+    }
+
+    // 13. 打卡记录 - 删除打卡记录
+    if (action === 'att_delete') {
+      const { id } = params;
+      if (!id) return resJson(400, '请传入打卡记录ID');
+      const { error } = await supabase
+        .from('attendance')
+        .delete()
+        .eq('id', id);
+      if (error) return resJson(500, '删除打卡记录失败', { error: error.message });
+      return resJson(200, '删除打卡记录成功');
+    }
+
+    // 14. 考勤统计 - 员工个人全年统计
+    if (action === 'att_user_stat') {
+      const { user_id, year } = params;
+      if (!user_id || !year) return resJson(400, '缺少参数：user_id/year');
+
+      // 转换年度时间范围为UTC时间（适配数据库存储）
+      const yearStartBeijing = new Date(`${year}-01-01 00:00:00 GMT+0800`).toISOString();
+      const yearEndBeijing = new Date(`${year}-12-31 23:59:59 GMT+0800`).toISOString();
+
+      const { data: rawList, error } = await supabase
+        .from('attendance')
+        .select('check_time, check_type_desc')
+        .eq('user_id', user_id)
+        .gte('check_time', yearStartBeijing)
+        .lte('check_time', yearEndBeijing);
+      if (error) return resJson(500, '考勤统计失败', { error: error.message });
+
+      // 按日期分组统计考勤状态
+      const dayMap = {};
+      rawList.forEach(item => {
+        if (!item?.check_time || !item?.check_type_desc) return;
+        
+        const beijingCheckTime = convertToBeijingTime(item.check_time);
+        const date = formatDate(beijingCheckTime);
+        const isRemote = isRemoteCheck(item.check_type_desc);
+        const checkMins = timeToMins(beijingCheckTime);
+
+        if (!dayMap[date]) {
+          dayMap[date] = {
+            date,
+            isRemote: false,
+            hasWork: false,
+            hasOff: false,
+            isLate: false,
+            status: 'absent'
+          };
+        }
+        const dayItem = dayMap[date];
+
+        // 远程打卡直接标记为正常
+        if (isRemote) {
+          dayItem.isRemote = true;
+          dayItem.status = 'normal';
+          return;
+        }
+
+        // 上班打卡判定
+        if (checkMins < workOffMins && !dayItem.hasWork) {
+          dayItem.hasWork = true;
+          dayItem.isLate = checkMins > lateLimitMins;
+          dayItem.status = dayItem.isLate ? 'late' : 'normal';
+        }
+        // 下班打卡判定
+        if (checkMins >= earlyLimitMins && !dayItem.hasOff) {
+          dayItem.hasOff = true;
+        }
+      });
+
+      // 二次判定缺勤状态（仅上班无下班标记为缺勤）
+      Object.values(dayMap).forEach(dayItem => {
+        if (!dayItem.isRemote && dayItem.hasWork) {
+          dayItem.status = dayItem.hasOff ? dayItem.status : 'absent';
+        }
+      });
+
+      // 按月份汇总统计
+      const statList = Array.from({ length: 12 }, (_, i) => ({
+        month: (i + 1).toString().padStart(2, '0'),
+        totalDays: 0,
+        normalDays: 0,
+        lateDays: 0,
+        earlyDays: 0,
+        absentDays: 0
+      }));
+
+      Object.values(dayMap).forEach(dayItem => {
+        const month = dayItem.date.split('-')[1];
+        if (!month) return;
+        const monthIndex = parseInt(month) - 1;
+        const monthItem = statList[monthIndex];
+        switch (dayItem.status) {
+          case 'normal':
+            monthItem.totalDays++;
+            monthItem.normalDays++;
+            break;
+          case 'late':
+            monthItem.totalDays++;
+            monthItem.lateDays++;
+            break;
+          case 'absent':
+            monthItem.absentDays++;
+            break;
+        }
+      });
+
+      // 计算年度总计
+      const total = statList.reduce((acc, item) => ({
+        totalDays: acc.totalDays + item.totalDays,
+        normalDays: acc.normalDays + item.normalDays,
+        lateDays: acc.lateDays + item.lateDays,
+        earlyDays: acc.earlyDays + item.earlyDays,
+        absentDays: acc.absentDays + item.absentDays
+      }), { totalDays: 0, normalDays: 0, lateDays: 0, earlyDays: 0, absentDays: 0 });
+
+      return resJson(200, '个人考勤统计成功', {
+        statList,
+        total,
+        rule: { work_time: workTime, late_mins: lateMins, work_off_time: workOffTime }
+      });
+    }
+
+    // 15. 考勤统计 - 管理员全员工统计
+    if (action === 'att_admin_stat') {
+      const { start, end } = params;
+      if (!start || !end || typeof start !== 'string' || typeof end !== 'string') {
+        return resJson(400, '参数错误：start/end需为有效日期字符串');
+      }
+
+      try {
+        // 转换查询时间范围为UTC时间
+        const startBeijing = new Date(`${start} 00:00:00 GMT+0800`).toISOString();
+        const endBeijing = new Date(`${end} 23:59:59 GMT+0800`).toISOString();
+
+        const { data: rawList, error: attError } = await supabase
+          .from('attendance')
+          .select(`user_id, check_time, check_type_desc`)
+          .gte('check_time', startBeijing)
+          .lte('check_time', endBeijing);
+        console.log("打卡记录的user_id列表：", rawList.map(item => item.user_id));
+        
+        if (attError || !Array.isArray(rawList)) {
+          return resJson(500, '查询打卡记录失败', { error: attError?.message || '记录为空' });
+        }
+        if (rawList.length === 0) {
+          return resJson(200, '暂无考勤数据', []);
+        }
+
+        // 关联员工信息
+        const userIds = [...new Set(rawList.map(item => item.user_id).filter(uid => uid))];
+        let empList = [];
+        if (userIds.length > 0) {
+          const { data: empData } = await supabase
+            .from('employee')
+            .select('user_id, name, dept');
+          empList = Array.isArray(empData) ? empData : [];
+        }
+        const empMap = {};
+        empList.forEach(emp => {
+          if (emp?.user_id) {
+            empMap[emp.user_id] = {
+              name: emp.name || '未知员工',
+              dept: emp.dept || '未知部门'
+            };
+          }
+        });
+        console.log("员工信息映射表：", empMap);
+
+        // 按员工分组统计
+        const userDayMap = {};
+        rawList.forEach(item => {
+          if (!item?.user_id || !item?.check_time || !item?.check_type_desc) return;
+          const userId = item.user_id;
+          
+          // 初始化员工统计数据
+          if (!userDayMap[userId]) {
+            const emp = empMap[userId] || { name: '未知员工', dept: '未知部门' };
+            userDayMap[userId] = {
+              user_id: userId,
+              name: emp.name,
+              dept: emp.dept,
+              dayMap: {}
+            };
+          }
+
+          const beijingCheckTime = convertToBeijingTime(item.check_time);
+          const date = formatDate(beijingCheckTime);
+          const isRemote = isRemoteCheck(item.check_type_desc);
+          const checkMins = timeToMins(beijingCheckTime);
+
+          const userItem = userDayMap[userId];
+          const dayMap = userItem.dayMap;
+
+          if (!dayMap[date]) {
+            dayMap[date] = {
+              isRemote: false,
+              hasWork: false,
+              hasOff: false,
+              isLate: false,
+              status: 'absent'
+            };
+          }
+          const dayItem = dayMap[date];
+
+          // 远程打卡标记
+          if (isRemote) {
+            dayItem.isRemote = true;
+            dayItem.status = 'normal';
+            return;
+          }
+
+          // 上班打卡判定
+          if (checkMins < workOffMins && !dayItem.hasWork) {
+            dayItem.hasWork = true;
+            dayItem.isLate = checkMins > lateLimitMins;
+            dayItem.status = dayItem.isLate ? 'late' : 'normal';
+          }
+          // 下班打卡判定
+          if (checkMins >= earlyLimitMins && !dayItem.hasOff) {
+            dayItem.hasOff = true;
+          }
+        });
+
+        // 二次判定缺勤状态
+        Object.values(userDayMap).forEach(userItem => {
+          Object.values(userItem.dayMap).forEach(dayItem => {
+            if (!dayItem.isRemote && dayItem.hasWork) {
+              dayItem.status = dayItem.hasOff ? dayItem.status : 'absent';
+            }
+          });
+        });
+
+        // 汇总统计结果
+        const statList = Object.values(userDayMap).map(userItem => {
+          let totalDays = 0, normalDays = 0, lateDays = 0, absentDays = 0;
+          Object.values(userItem.dayMap).forEach(dayItem => {
+            switch (dayItem.status) {
+              case 'normal':
+                totalDays++;
+                normalDays++;
+                break;
+              case 'late':
+                totalDays++;
+                lateDays++;
+                break;
+              case 'absent':
+                absentDays++;
+                break;
+            }
+          });
+          return {
+            user_id: userItem.user_id,
+            name: userItem.name,
+            dept: userItem.dept,
+            totalDays,
+            normalDays,
+            lateDays,
+            earlyDays: 0,
+            absentDays
+          };
+        });
+
+        statList.sort((a, b) => b.totalDays - a.totalDays);
+        console.log("最终导出的考勤统计列表：", statList);
+
+        return resJson(200, '管理员考勤统计成功', statList);
+      } catch (innerErr) {
+        return resJson(500, '管理员考勤统计失败', { error: innerErr.message });
+      }
+    }
+
+    // 未知接口操作
+    console.log('未知的接口Action：', action);
+    return resJson(404, '未知的接口操作');
+  } catch (err) {
+    console.error('服务器内部错误：', err.message, err.stack);
+    return resJson(500, '服务器内部错误', { error: err.message });
+  }
+});
