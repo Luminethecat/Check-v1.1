@@ -1,6 +1,6 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 
-// Supabase配置（替换为自己的项目信息）
+// Supabase配置
 const SUPABASE_URL = 'https://ufdwkrexvfceztrnuvrm.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVmZHdrcmV4dmZjZXp0cm51dnJtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDAzNTczNiwiZXhwIjoyMDg1NjExNzM2fQ.cm34oWvD0Oc8KP83uDE53R5Xcmcd34y4Xb-VzcvKz4g';
 
@@ -14,7 +14,7 @@ const resJson = (code = 200, msg = 'success', data = {}) => {
   });
 };
 
-// 时间转换：提取北京时间（去除时区后缀，适配数据库存储格式）
+// 时间转换：提取北京时间
 const convertToBeijingTime = (timeStr) => {
   if (!timeStr || typeof timeStr !== 'string') return '';
   try {
@@ -25,7 +25,7 @@ const convertToBeijingTime = (timeStr) => {
   }
 };
 
-// 时间转分钟数（用于考勤规则判定，如09:00→540分钟）
+// 时间转分钟数（用于考勤规则判定)
 const timeToMins = (timeStr) => {
   const timePart = timeStr.split(' ')[1];
   if (!timePart) {
