@@ -1,0 +1,215 @@
+/* app.wxss - 全局样式 */
+page {
+  background-color: #f5f7fa;
+  font-size: 28rpx;
+  color: #333;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+
+
+/* 通用标题（页面主标题） */
+.page-title {
+  font-size: 36rpx;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 40rpx;
+  color: #1d2129;
+}
+
+/* 通用子标题 */
+.sub-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #1d2129;
+  margin-bottom: 20rpx;
+}
+
+
+
+/* 确保容器占满屏幕宽度 */
+.container {
+  width: 100%;
+  padding: 30rpx;
+  min-height: 100vh;
+  box-sizing: border-box; /* 避免padding撑大宽度 */
+}
+
+/* 输入框容器占满父容器 */
+.input-wrap {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+  margin-bottom: 30rpx;
+}
+.input-wrap label {
+  font-size: 26rpx;
+  color: #4e5969;
+}
+/* 输入框强制占满父容器 */
+.input {
+  width: 100% !important; /* 强制占满 */
+  height: 88rpx;
+  background: #fff;
+  border-radius: 12rpx;
+  padding: 0 24rpx;
+  border: 1rpx solid #e5e6eb;
+  font-size: 28rpx;
+  color: #1d2129;
+  box-sizing: border-box;
+}
+.input::placeholder {
+  color: #c9cdD4;
+}
+
+/* 通用按钮（主按钮：蓝色） */
+.btn-primary {
+  width: 100%;
+  height: 88rpx;
+  line-height: 88rpx;
+  text-align: center;
+  background: #1890ff;
+  color: #fff;
+  border-radius: 12rpx;
+  font-size: 30rpx;
+  font-weight: 500;
+  background: linear-gradient(90deg, #1890ff, #096dd9);
+}
+/* 通用按钮（次要按钮：灰色） */
+.btn-secondary {
+  width: 100%;
+  height: 88rpx;
+  line-height: 88rpx;
+  text-align: center;
+  background: #fff;
+  color: #4e5969;
+  border-radius: 12rpx;
+  font-size: 30rpx;
+  border: 1rpx solid #e5e6eb;
+}
+/* 迷你按钮（用于列表操作） */
+.btn-mini {
+  padding: 8rpx 16rpx;
+  border-radius: 6rpx;
+  font-size: 24rpx;
+}
+.btn-mini-warn {
+  background: #fff;
+  color: #f53f3f;
+  border: 1rpx solid #fde2e2;
+}
+.btn-mini-primary {
+  background: #fff;
+  color: #1890ff;
+  border: 1rpx solid #e6f7ff;
+}
+.btn-mini-danger {
+  background: #fff;
+  color: #f53f3f;
+  border: 1rpx solid #fde2e2;
+}
+
+/* 通用列表项（卡片式） */
+.list-item {
+  background: #fff;
+  border-radius: 12rpx;
+  padding: 24rpx;
+  margin-bottom: 20rpx;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.04);
+}
+/* 列表项左侧信息 */
+.list-item__left {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+.list-item__title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #1d2129;
+}
+.list-item__desc {
+  font-size: 24rpx;
+  color: #86909c;
+  line-height: 1.4;
+}
+/* 列表项右侧操作区 */
+.list-item__right {
+  display: flex;
+  gap: 20rpx;
+  align-items: center;
+}
+
+/* 空数据提示 */
+.empty-tip {
+  text-align: center;
+  margin-top: 100rpx;
+  color: #86909c;
+  font-size: 28rpx;
+}
+.empty-tip view {
+  margin-bottom: 20rpx;
+}
+
+/* 弹窗遮罩 */
+.modal-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+/* 弹窗内容 */
+.modal-content {
+  width: 85%;
+  background: #fff;
+  border-radius: 16rpx;
+  padding: 40rpx 30rpx;
+  box-sizing: border-box;
+}
+/* 弹窗标题 */
+.modal-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 30rpx;
+  color: #1d2129;
+}
+/* 弹窗按钮区 */
+.modal-btns {
+  display: flex;
+  gap: 20rpx;
+  margin-top: 20rpx;
+}
+.modal-btns view {
+  flex: 1;
+  height: 88rpx;
+  line-height: 88rpx;
+  text-align: center;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+}
+.modal-btn-confirm {
+  background: #1890ff;
+  color: #fff;
+}
+.modal-btn-cancel {
+  background: #f5f7fa;
+  color: #86909c;
+}
+
+/* 间距类 */
+.mb-20 { margin-bottom: 20rpx; }
+.mb-30 { margin-bottom: 30rpx; }
+.mb-40 { margin-bottom: 40rpx; }
+.gap-20 { gap: 20rpx; }
+.gap-30 { gap: 30rpx; }

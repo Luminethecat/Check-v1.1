@@ -1,0 +1,31 @@
+<!--pages/report/report.wxml-->
+<view class="container">
+  <view class="page-title">考勤报表导出</view>
+
+  <!-- 日期选择器：双列拉满，适配全局input样式 -->
+  <view style="display: flex; gap: 20rpx; margin-bottom: 40rpx;">
+    <picker mode="date" bindchange="onStartChange" value="{{startDate}}">
+      <view class="input" style="flex: 1;">开始日期：{{startDate}}</view>
+    </picker>
+    <picker mode="date" bindchange="onEndChange" value="{{endDate}}">
+      <view class="input" style="flex: 1;">结束日期：{{endDate}}</view>
+    </picker>
+  </view>
+
+  <!-- 导出按钮：带禁用逻辑（无日期/开始>结束），全局主按钮样式 -->
+  <button 
+    class="btn-primary" 
+    bindtap="exportExcel" 
+    hover-class="none"
+    disabled="{{!startDate || !endDate || startDate > endDate}}"
+    style="{{!startDate || !endDate || startDate > endDate ? 'background: #c9cdD4;' : ''}}"
+  >
+    生成并打开Excel报表
+  </button>
+
+  <!-- 温馨提示，样式统一 -->
+  <view style="font-size: 24rpx; color: #86909c; text-align: center; margin-top: 30rpx; line-height: 1.6;">
+    📌 报表包含：员工姓名、UID、部门、打卡次数、出勤率<br/>
+    📌 生成后自动打开，支持保存到手机/电脑
+  </view>
+</view>

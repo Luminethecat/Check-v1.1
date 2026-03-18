@@ -1,0 +1,139 @@
+/* 员工个人考勤统计页 - userstart.wxss */
+.userstart-page {
+  padding: 20rpx;
+  background-color: #f5f5f5;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+/* 年份选择器 */
+.year-picker {
+  background: #fff;
+  padding: 30rpx;
+  border-radius: 16rpx;
+  margin-bottom: 20rpx;
+}
+.picker-text {
+  font-size: 32rpx;
+  color: #333;
+  text-align: center;
+  font-weight: 500;
+}
+
+/* 通用卡片标题 */
+.card-title {
+  font-size: 30rpx;
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 20rpx;
+  display: block;
+}
+
+/* 打卡规则卡片 */
+.rule-card {
+  background: #fff;
+  padding: 30rpx;
+  border-radius: 16rpx;
+  margin-bottom: 20rpx;
+}
+.rule-content {
+  display: flex;
+  justify-content: space-between;
+  font-size: 26rpx;
+  color: #666;
+  margin-bottom: 16rpx;
+}
+.rule-content:last-child {
+  margin-bottom: 0;
+}
+
+/* 全年总计卡片 */
+.total-card {
+  background: #fff;
+  padding: 30rpx;
+  border-radius: 16rpx;
+  margin-bottom: 30rpx;
+}
+.total-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 20rpx;
+}
+.total-item {
+  width: 48%;
+  background: #f8f8f8;
+  padding: 20rpx;
+  border-radius: 12rpx;
+  text-align: center;
+}
+.item-key {
+  font-size: 24rpx;
+  color: #666;
+  display: block;
+  margin-bottom: 8rpx;
+}
+.item-val {
+  font-size: 30rpx;
+  font-weight: bold;
+  color: #333;
+}
+
+/* 每月统计标题 */
+.month-title {
+  font-size: 30rpx;
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 20rpx;
+  display: block;
+}
+
+/* 每月统计列表 */
+.month-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 20rpx;
+}
+.month-card {
+  width: 48%;
+  background: #fff;
+  padding: 20rpx;
+  border-radius: 16rpx;
+}
+.month-num {
+  font-size: 28rpx;
+  font-weight: bold;
+  color: #007aff;
+  display: block;
+  margin-bottom: 16rpx;
+}
+.month-data {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  font-size: 24rpx;
+  color: #666;
+}
+
+/* 颜色区分（和empatt页一致） */
+.normal { color: #34c759 !important; }
+.warn { color: #ff9500 !important; }
+.error { color: #ff3b30 !important; }
+
+/* 无数据样式 */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-top: 100rpx;
+}
+.empty-img {
+  width: 200rpx;
+  margin-bottom: 20rpx;
+}
+.empty-text {
+  font-size: 28rpx;
+  color: #999;
+}

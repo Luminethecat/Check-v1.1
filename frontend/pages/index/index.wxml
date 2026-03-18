@@ -1,0 +1,48 @@
+<!--pages/index/index.wxml-->
+<view class="container">
+  <!-- 登录用户信息 -->
+  <view class="list-item mb-40">
+    <view class="list-item__left">
+      <view class="list-item__title">
+        {{userType == 'admin' ? '管理员' : '员工'}} · {{userInfo.name || userInfo.username}}
+      </view>
+      <view class="list-item__desc">
+        {{userType == 'admin' ? '系统后台管理' : 'UID：' + userInfo.user_id}}
+      </view>
+    </view>
+    <view class="btn-mini btn-mini-warn" bindtap="logout">退出</view>
+  </view>
+
+  <!-- pages/index/index.wxml 管理员功能区新增 -->
+<view wx:if="{{userType == 'admin'}}" class="gap-20" style="display: flex; flex-direction: column;">
+  <view class="sub-title">管理员功能</view>
+  
+  <!-- 新增：设备ID配置 -->
+  <view class="input-wrap">
+    <label>设备ID（全局配置）</label>
+    <input 
+      class="input" 
+      placeholder="请输入打卡设备ID" 
+      bindinput="onDeviceIdInput" 
+      value="{{deviceId}}"
+    />
+    <button class="btn-primary mb-20" bindtap="saveDeviceId" hover-class="none">保存设备ID</button>
+  </view>
+<!-- 新增：员工考勤统计入口 -->
+<button class="btn-secondary mb-20" bindtap="toEmpAtt" hover-class="none">员工考勤统计</button>
+  <!-- 原有功能按钮 -->
+  <button class="btn-secondary mb-20" bindtap="toEmp" hover-class="none">员工管理</button>
+  <button class="btn-secondary mb-20" bindtap="toDevice" hover-class="none">设备指令</button>
+  <button class="btn-secondary mb-20" bindtap="toAtt" hover-class="none">打卡记录查询</button>
+  <button class="btn-secondary mb-20" bindtap="toReport" hover-class="none">考勤报表导出</button>
+  <button class="btn-primary" bindtap="toAdminChangePwd" hover-class="none">修改管理员密码</button>
+</view>
+
+  <!-- 员工功能区 -->
+  <view wx:if="{{userType == 'user'}}" class="gap-20" style="display: flex; flex-direction: column;">
+    <view class="sub-title">员工中心</view>
+    <button class="btn-secondary mb-20" bindtap="toAtt" hover-class="none">我的打卡记录</button>
+    <button class="btn-secondary mb-20" bindtap="toUserStart" hover-class="none">我的考勤统计</button>
+    <button class="btn-primary" bindtap="toUserChangePwd" hover-class="none">修改我的密码</button>
+  </view>
+</view>

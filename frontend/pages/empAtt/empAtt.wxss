@@ -1,0 +1,101 @@
+/* 管理员考勤统计页 - empatt.wxss */
+.empatt-page {
+  padding: 20rpx;
+  background-color: #f5f5f5;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+/* 日期选择器（和att页一致，可复用） */
+.date-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fff;
+  padding: 20rpx;
+  border-radius: 16rpx;
+  margin-bottom: 20rpx;
+  flex-wrap: wrap;
+  gap: 20rpx;
+}
+.picker-btn {
+  padding: 16rpx 20rpx;
+  border: 1px solid #eee;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+  color: #333;
+  min-width: 200rpx;
+  text-align: center;
+}
+.query-btn {
+  flex: 1;
+  min-width: 120rpx;
+  background: #007aff;
+  color: #fff;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+  padding: 16rpx 0;
+}
+
+/* 统计表格样式 */
+.stat-content {
+  background: #fff;
+  border-radius: 16rpx;
+  overflow: hidden;
+}
+/* 表头 */
+.stat-header {
+  display: flex;
+  background: #f8f8f8;
+  padding: 20rpx 10rpx;
+  border-bottom: 1px solid #eee;
+}
+/* 表体每一行 */
+.stat-list {
+  display: flex;
+  padding: 20rpx 10rpx;
+  border-bottom: 1px solid #f5f5f5;
+  align-items: center;
+}
+/* 最后一行去掉下边框 */
+.stat-list:last-child {
+  border-bottom: none;
+}
+/* 列样式：统一设置 */
+.col {
+  font-size: 24rpx;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 列宽分配（新手可调整数字） */
+.col-1 { width: 15%; }
+.col-2 { width: 20%; }
+.col-3 { width: 15%; }
+.col-4 { width: 15%; }
+.col-5 { width: 15%; }
+.col-6 { width: 15%; }
+.col-7 { width: 15%; }
+
+/* 文字颜色区分 */
+.normal { color: #34c759; font-weight: 500; } /* 正常-绿色 */
+.warn { color: #ff9500; font-weight: 500; }   /* 迟到/早退-橙色 */
+.error { color: #ff3b30; font-weight: 500; }  /* 缺勤-红色 */
+
+/* 无数据样式（和att页一致） */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-top: 200rpx;
+}
+.empty-img {
+  width: 200rpx;
+  margin-bottom: 20rpx;
+}
+.empty-text {
+  font-size: 28rpx;
+  color: #999;
+}

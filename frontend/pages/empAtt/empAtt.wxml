@@ -1,0 +1,43 @@
+<!-- 管理员考勤统计页 - empatt.wxml -->
+<view class="empatt-page">
+  <!-- 日期选择区域 -->
+  <view class="date-select">
+    <picker mode="date" value="{{startDate}}" bindchange="onStartDateChange">
+      <view class="picker-btn">开始：{{startDate}}</view>
+    </picker>
+    <picker mode="date" value="{{endDate}}" bindchange="onEndDateChange">
+      <view class="picker-btn">结束：{{endDate}}</view>
+    </picker>
+    <button bindtap="getEmpAtt" loading="{{isLoading}}" class="query-btn">查询考勤</button>
+  </view>
+
+  <!-- 考勤统计列表（表格式） -->
+  <view class="stat-content" wx:if="{{attList.length > 0}}">
+    <!-- 表头 -->
+    <view class="stat-header">
+      <text class="col col-1">员工姓名</text>
+      <text class="col col-2">员工UID</text>
+      <text class="col col-3">总打卡天数</text>
+      <text class="col col-4">正常天数</text>
+      <text class="col col-5">迟到天数</text>
+      <text class="col col-6">早退天数</text>
+      <text class="col col-7">缺勤天数</text>
+    </view>
+    <!-- 表体：每个员工的统计数据 -->
+    <view class="stat-list" wx:for="{{attList}}" wx:key="user_id">
+      <text class="col col-1">{{item.name}}</text>
+      <text class="col col-2">{{item.user_id}}</text>
+      <text class="col col-3">{{item.totalDays}}</text>
+      <text class="col col-4 normal">{{item.normalDays}}</text>
+      <text class="col col-5 warn">{{item.lateDays}}</text>
+      <text class="col col-6 warn">{{item.earlyDays}}</text>
+      <text class="col col-7 error">{{item.absentDays}}</text>
+    </view>
+  </view>
+
+  <!-- 无考勤数据提示 -->
+  <view class="empty" wx:else>
+   
+    <text class="empty-text">暂无考勤数据</text>
+  </view>
+</view>

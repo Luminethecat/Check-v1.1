@@ -1,0 +1,23 @@
+{
+  "pages": [
+    "pages/login/login",
+    "pages/userlogin/userlogin",
+    "pages/index/index",
+    "pages/emp/emp",
+    "pages/device/device",
+    "pages/att/att",
+    "pages/report/report",
+    "pages/userstart/userstart",
+    "pages/adminChangePwd/adminChangePwd",
+    "pages/userChangePwd/userChangePwd",
+    "pages/empAtt/empAtt",
+    "pages/devicewifi/devicewifi"
+  ],
+  "window": {
+    "backgroundTextStyle": "light",
+    "navigationBarBackgroundColor": "#1890ff",
+    "navigationBarTitleText": "智能考勤系统",
+    "navigationBarTextStyle": "white"
+  },
+  "sitemapLocation": "sitemap.json"
+}

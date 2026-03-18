@@ -1,0 +1,67 @@
+<view class="userstart-page">
+  <!-- 年份选择器 -->
+  <picker mode="year" value="{{year}}" bindchange="onYearChange" class="year-picker">
+    <view class="picker-text">{{year}}年 个人考勤统计</view>
+  </picker>
+
+  <!-- 打卡规则卡片（匹配后端下划线字段） -->
+  <view class="rule-card" wx:if="{{statInfo.rule.work_time && !hasNoData}}">
+    <text class="card-title">打卡规则</text>
+    <view class="rule-content">
+      <text>上班时间：{{statInfo.rule.work_time}}</text>
+      <text>迟到{{statInfo.rule.late_mins}}分钟内算正常</text>
+    </view>
+    <view class="rule-content">
+      <text>下班时间：{{statInfo.rule.work_off_time}}</text>
+      <text>早退{{statInfo.rule.early_mins}}分钟内算正常</text>
+    </view>
+  </view>
+
+  <!-- 全年总计卡片 -->
+  <view class="total-card" wx:if="{{!hasNoData}}">
+    <text class="card-title">{{year}}年 考勤总计（按天统计）</text>
+    <view class="total-list">
+      <view class="total-item">
+        <text class="item-key">总打卡天数</text>
+        <text class="item-val">{{statInfo.total.totalDays}}</text>
+      </view>
+      <view class="total-item">
+        <text class="item-key">正常天数</text>
+        <text class="item-val normal">{{statInfo.total.normalDays}}</text>
+      </view>
+      <view class="total-item">
+        <text class="item-key">迟到天数</text>
+        <text class="item-val warn">{{statInfo.total.lateDays}}</text>
+      </view>
+      <view class="total-item">
+        <text class="item-key">早退天数</text>
+        <text class="item-val warn">{{statInfo.total.earlyDays}}</text>
+      </view>
+      <view class="total-item">
+        <text class="item-key">缺勤天数</text>
+        <text class="item-val error">{{statInfo.total.absentDays}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 每月考勤统计（去掉后端没有的absentDays） -->
+  <view wx:if="{{!hasNoData}}">
+    <text class="month-title">{{year}}年 每月考勤明细</text>
+    <view class="month-list">
+      <view class="month-card" wx:for="{{statInfo.statList}}" wx:key="month">
+        <text class="month-num">{{item.month}}月</text>
+        <view class="month-data">
+          <text>总打卡：{{item.totalDays}}天</text>
+          <text class="normal">正常：{{item.normalDays}}天</text>
+          <text class="warn">迟到：{{item.lateDays}}天</text>
+          <text class="warn">早退：{{item.earlyDays}}天</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 无考勤数据提示 -->
+  <view class="empty" wx:if="{{hasNoData}}">
+    <text class="empty-text">暂无{{year}}年考勤数据</text>
+  </view>
+</view>

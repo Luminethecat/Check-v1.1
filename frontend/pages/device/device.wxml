@@ -1,0 +1,56 @@
+<!--pages/device/device.wxml-->
+<view class="container">
+  <!-- 设备ID展示：只读，取全局配置 -->
+  <view class="input-wrap mb-40">
+    <label>当前绑定设备ID</label>
+    <view class="input" style="background: #f5f5f5; color: #666; pointer-events: none;">
+      {{deviceId || '暂无配置，请先到首页设置'}}
+    </view>
+  </view>
+
+  <!-- 指令选择器 -->
+  <view class="input-wrap mb-20">
+    <label>选择操作指令</label>
+    <picker mode="selector" range="{{cmdList}}" bindchange="onCmdChange" range-key="name" class="input" style="padding: 0 20rpx; border: 1rpx solid #eee; border-radius: 8rpx;">
+      <view>{{selectedCmd.name || '请选择指令'}}</view>
+    </picker>
+  </view>
+
+  <!-- 动态参数输入：根据指令显示，复用你的input-wrap/input样式 -->
+  <!-- 指定员工ID打卡：输入UID -->
+  <view wx:if="{{selectedCmd.code == 'checkInUser'}}" class="input-wrap mb-20">
+    <label>员工UID</label>
+    <input class="input" placeholder="请输入员工UID（数字）" data-key="userId" bindinput="onParamInput" value="{{userId}}"/>
+  </view>
+
+  <!-- 设置打卡时间：上下班时间 -->
+  <view wx:if="{{selectedCmd.code == 'setWorkTime'}}" class="input-wrap mb-20" style="display: flex; gap: 20rpx;">
+    <view style="flex: 1;">
+      <label>上班时间</label>
+      <input class="input" placeholder="如09:00" data-key="workTime" bindinput="onParamInput" value="{{workTime}}"/>
+    </view>
+    <view style="flex: 1;">
+      <label>下班时间</label>
+      <input class="input" placeholder="如18:00" data-key="offWorkTime" bindinput="onParamInput" value="{{offWorkTime}}"/>
+    </view>
+  </view>
+
+  <!-- 修改WiFi配置：2.4G账号+密码 -->
+  <view wx:if="{{selectedCmd.code == 'setWifi'}}" class="input-wrap mb-20">
+    <label>WiFi账号（2.4G）</label>
+    <input class="input" placeholder="输入ESP要连接的2.4G WiFi" data-key="wifiSsid" bindinput="onParamInput" value="{{wifiSsid}}"/>
+  </view>
+  <view wx:if="{{selectedCmd.code == 'setWifi'}}" class="input-wrap mb-20">
+    <label>WiFi密码（可选）</label>
+    <input class="input" type="password" placeholder="开放WiFi留空，加密请输入" data-key="wifiPwd" bindinput="onParamInput" value="{{wifiPwd}}"/>
+  </view>
+  <!-- 新增：WiFi配置错误提示，和WiFi输入框一起显示 -->
+  <view wx:if="{{selectedCmd.code == 'setWifi'}}" class="wifi-tip">
+    ⚠️ 配置提示：若WiFi信息错误，设备将尝试连接30秒，失败后自动恢复为原WiFi配置。设备默认WiFi：12345678（无密码）。
+  </view>
+
+  <!-- 发送按钮：智能禁用，复用你的btn-primary -->
+  <button class="btn-primary" bindtap="sendCmd" disabled="{{isBtnDisabled}}" hover-class="none">
+    发送指令
+  </button>
+</view>

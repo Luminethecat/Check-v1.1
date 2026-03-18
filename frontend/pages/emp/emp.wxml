@@ -1,0 +1,63 @@
+<!--pages/emp/emp.wxml-->
+<view class="container">
+  <view class="page-title">员工管理</view>
+  
+  <!-- 新增员工按钮 -->
+  <button class="btn-primary mb-30" bindtap="showAddModal" hover-class="none">新增员工</button>
+  
+  <!-- 员工列表 -->
+  <view wx:if="{{empList.length > 0}}">
+    <view class="sub-title">员工列表（共{{empList.length}}人）</view>
+    <view class="list-item" wx:for="{{empList}}" wx:key="id">
+      <view class="list-item__left">
+        <view class="list-item__title">{{item.name}} | {{item.user_id}}</view>
+        <view class="list-item__desc">
+          部门：{{item.dept || '未填写'}} | 电话：{{item.phone || '未填写'}}
+        </view>
+      </view>
+      <view class="list-item__right">
+        <view bindtap="showEditModal" data-item="{{item}}" class="btn-mini btn-mini-primary">编辑</view>
+        <view bindtap="onDelete" data-id="{{item.id}}" class="btn-mini btn-mini-danger">删除</view>
+        <view bindtap="resetPwd" data-id="{{item.id}}" class="btn-mini btn-mini-warn">重置密码</view>
+      </view>
+    </view>
+  </view>
+  
+  <!-- 空数据提示 -->
+  <view class="empty-tip" wx:else>
+    <view>暂无员工数据</view>
+    <view>点击上方「新增员工」添加</view>
+  </view>
+
+  <!-- 新增/编辑员工弹窗 -->
+  <view class="modal-mask" wx:if="{{showModal}}" bindtap="hideModal">
+    <view class="modal-content" catchtap="stopPropagation">
+      <view class="modal-title">{{isEdit ? '编辑员工' : '新增员工'}}</view>
+      
+      <view class="input-wrap">
+        <label>员工姓名</label>
+        <input class="input" bindinput="onNameInput" value="{{form.name}}" placeholder="请输入真实姓名" />
+      </view>
+      
+      <view class="input-wrap">
+        <label>员工UID</label>
+        <input class="input" bindinput="onUserIdInput" value="{{form.user_id}}" placeholder="与硬件打卡UID一致" />
+      </view>
+      
+      <view class="input-wrap">
+        <label>所属部门</label>
+        <input class="input" bindinput="onDeptInput" value="{{form.dept}}" placeholder="如：研发部/人事部" />
+      </view>
+      
+      <view class="input-wrap">
+        <label>联系电话</label>
+        <input class="input" bindinput="onPhoneInput" value="{{form.phone}}" placeholder="选填，便于联系" />
+      </view>
+      
+      <view class="modal-btns">
+        <view class="modal-btn-cancel" bindtap="hideModal">取消</view>
+        <view class="modal-btn-confirm" bindtap="onSave">确认{{isEdit ? '修改' : '新增'}}</view>
+      </view>
+    </view>
+  </view>
+</view>

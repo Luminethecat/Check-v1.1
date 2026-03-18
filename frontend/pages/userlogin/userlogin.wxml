@@ -1,0 +1,20 @@
+<!--pages/userlogin/userlogin.wxml-->
+<view class="container">
+  <view class="page-title">员工登录</view>
+  
+  <view class="input-wrap">
+    <label>员工UID</label>
+    <input class="input" placeholder="请输入员工UID" bindinput="onUserIdChange" />
+  </view>
+  
+  <view class="input-wrap">
+    <label>登录密码</label>
+    <input class="input" type="password" placeholder="默认密码123456" bindinput="onPasswordChange" />
+  </view>
+  
+  <button class="btn-primary mb-30" bindtap="login" hover-class="none">确认登录</button>
+  
+  <view class="text-center" bindtap="toAdminLogin" style="color: #1890ff; font-size: 26rpx;">
+    管理员请点击此处返回登录
+  </view>
+</view>

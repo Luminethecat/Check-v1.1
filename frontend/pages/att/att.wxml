@@ -1,0 +1,62 @@
+<view class="att-page">
+  <!-- 日期选择区域 -->
+  <view class="date-bar">
+    <picker mode="date" value="{{startTime}}" bindchange="onStartChange">
+      <view class="date-btn">开始：{{startTime}}</view>
+    </picker>
+    <picker mode="date" value="{{endTime}}" bindchange="onEndChange">
+      <view class="date-btn">结束：{{endTime}}</view>
+    </picker>
+    <button bindtap="getAttList" class="query-btn">查询记录</button>
+  </view>
+
+  <!-- 打卡记录列表（卡片式） -->
+  <view class="record-container" wx:if="{{attList.length > 0}}">
+    <!-- 外层条件渲染：管理员视角【wx:if单独节点，和wx:else同级】 -->
+    <view wx:if="{{userType === 'admin'}}">
+      <view class="record-card" wx:for="{{attList}}" wx:key="id">
+        <view class="emp-info">
+          <text class="emp-name">员工：{{item.employee.name}}</text>
+          <text class="emp-id">ID：{{item.employee.user_id}}</text>
+        </view>
+        <view class="record-detail">
+          <text class="detail-item">打卡ID：{{item.id}}</text>
+          <text class="detail-item">打卡时间：{{item.check_time}}</text>
+          <text class="detail-item">打卡类型：{{item.check_type_desc}}</text>
+          <text class="detail-item">设备ID：{{item.device_id}}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 外层条件渲染：员工视角【wx:else和wx:if同级，解决编译错误】 -->
+    <view wx:else>
+      <view class="record-card" wx:for="{{attList}}" wx:key="date">
+        <view class="emp-info" style="background: #f8f9fa;">
+          <text class="emp-name" style="font-weight: bold;">打卡日期：{{item.date}}</text>
+          <text class="emp-id">员工ID：{{userInfo.user_id}}</text>
+        </view>
+        <!-- 上班打卡信息 -->
+        <view class="record-detail" wx:if="{{item.work.time}}">
+          <text class="detail-item">上班打卡：{{item.work.time}}</text>
+          <text class="detail-item">打卡状态：{{item.work.status}}</text>
+          <text class="detail-item">打卡类型：{{item.work.desc}}</text>
+        </view>
+        <!-- 下班打卡信息 -->
+        <view class="record-detail" wx:if="{{item.off.time}}">
+          <text class="detail-item">下班打卡：{{item.off.time}}</text>
+          <text class="detail-item">打卡状态：{{item.off.status}}</text>
+          <text class="detail-item">打卡类型：{{item.off.desc}}</text>
+        </view>
+        <!-- 原始打卡记录数 -->
+        <view class="record-detail" style="margin-top: 8px; color: #666; font-size: 12px;">
+          <text class="detail-item">原始打卡记录：{{item.checkList.length}}条</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 无数据提示 -->
+  <view class="empty-tip" wx:else>
+    <text>暂无打卡记录</text>
+  </view>
+</view>

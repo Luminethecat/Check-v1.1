@@ -1,0 +1,32 @@
+<!--pages/login/login.wxml-->
+<view class="container">
+  <view class="page-title">管理员登录</view>
+  
+  <!-- 账号输入框 -->
+  <view class="input-wrap">
+    <label>管理员账号</label>
+    <input class="input" placeholder="请输入账号" bindinput="onUsernameChange" value="{{username}}" />
+  </view>
+  
+  <!-- 密码输入框 -->
+  <view class="input-wrap">
+    <label>管理员密码</label>
+    <input class="input" type="password" placeholder="默认密码为123456" bindinput="onPasswordChange" />
+  </view>
+  
+  <!-- 登录按钮：联动JS防重，禁用+loading -->
+  <button class="btn-primary mb-30" 
+          bindtap="login" 
+          hover-class="none"
+          disabled="{{loginClick}}"
+          loading="{{loginClick}}">
+    确认登录
+  </button>
+  
+  <!-- 员工登录入口：联动JS防重，禁用态灰显 -->
+  <view class="text-center to-user-login" 
+        bindtap="toUserLogin" 
+        data-disabled="{{isClick}}">
+    普通员工请点击此处登录
+  </view>
+</view>

@@ -1,0 +1,83 @@
+/* pages/login/login.wxss */
+/* 页面整体容器 */
+.container {
+  padding: 60rpx 40rpx;
+  box-sizing: border-box;
+  min-height: 100vh;
+  background-color: #f5f5f5;
+}
+
+/* 页面标题 */
+.page-title {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #333;
+  text-align: center;
+  margin-bottom: 80rpx;
+}
+
+/* 输入框包裹层 */
+.input-wrap {
+  margin-bottom: 40rpx;
+}
+
+/* 输入框标签 */
+.input-wrap label {
+  display: block;
+  font-size: 28rpx;
+  color: #666;
+  margin-bottom: 12rpx;
+}
+
+/* 输入框样式 */
+.input {
+  width: 100%;
+  height: 80rpx;
+  padding: 0 20rpx;
+  box-sizing: border-box;
+  border: 2rpx solid #e5e5e5;
+  border-radius: 12rpx;
+  background-color: #fff;
+  font-size: 28rpx;
+  color: #333;
+}
+
+/* 输入框聚焦样式优化 */
+.input:focus {
+  border-color: #1890ff;
+  outline: none;
+}
+
+/* 主按钮样式 */
+.btn-primary {
+  width: 100%;
+  height: 88rpx;
+  line-height: 88rpx;
+  background-color: #1890ff;
+  color: #fff;
+  font-size: 32rpx;
+  border-radius: 12rpx;
+}
+
+/* 外边距间距类 */
+.mb-30 {
+  margin-bottom: 30rpx;
+}
+
+/* 居中文字类 */
+.text-center {
+  text-align: center;
+}
+
+/* 员工登录入口基础样式 */
+.to-user-login {
+  font-size: 26rpx;
+  color: #1890ff;
+  padding: 20rpx 0;
+}
+
+/* 员工登录入口 禁用态样式（灰显+禁止点击） */
+.to-user-login[data-disabled="true"] {
+  color: #c0c4cc !important;
+  pointer-events: none;
+}

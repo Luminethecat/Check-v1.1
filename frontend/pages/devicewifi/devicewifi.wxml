@@ -1,0 +1,49 @@
+<view class="container">
+  <!-- 设备ID输入：必传，指定要修改的ESP设备 -->
+  <view class="form-item">
+    <label class="form-label">设备ID</label>
+    <input 
+      class="form-input" 
+      placeholder="请输入要修改的ESP设备ID" 
+      bindinput="onDeviceIdInput"
+      value="{{deviceId}}"
+    />
+  </view>
+
+  <!-- WiFi账号输入：必传 -->
+  <view class="form-item">
+    <label class="form-label">WiFi账号</label>
+    <input 
+      class="form-input" 
+      placeholder="仅支持2.4G WiFi，必填！" 
+      bindinput="onWifiSsidInput"
+      value="{{wifiSsid}}"
+    />
+  </view>
+
+  <!-- WiFi密码输入：可选（开放WiFi留空） -->
+  <view class="form-item">
+    <label class="form-label">WiFi密码</label>
+    <input 
+      class="form-input" 
+      type="password"
+      placeholder="开放WiFi请留空，非必填" 
+      bindinput="onWifiPwdInput"
+      value="{{wifiPwd}}"
+    />
+  </view>
+
+  <!-- WiFi配置错误提示：橙色醒目，新增核心提示 -->
+  <view class="tip-text">
+    ⚠️ 配置提示：<text class="highlight">仅支持2.4G WiFi</text>，若信息错误设备将尝试连接30秒，失败后自动恢复原配置！设备默认WiFi：12345678（无密码）
+  </view>
+
+  <!-- 提交按钮：禁用状态（未填设备ID/SSID时） -->
+  <button 
+    class="submit-btn" 
+    bindtap="submitWifiConfig"
+    disabled="{{!deviceId || !wifiSsid}}"
+  >
+    提交配置并重连ESP
+  </button>
+</view>

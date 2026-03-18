@@ -1,0 +1,72 @@
+/* pages/device/device.wxss */
+.container {
+  padding: 30rpx;
+  box-sizing: border-box;
+}
+.page-title {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 40rpx;
+  text-align: center;
+}
+.form-item {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 30rpx;
+}
+.form-label {
+  font-size: 28rpx;
+  color: #666;
+  margin-bottom: 10rpx;
+}
+.form-input {
+  height: 80rpx;
+  line-height: 80rpx;
+  padding: 0 20rpx;
+  border: 1rpx solid #eee;
+  border-radius: 10rpx;
+  font-size: 28rpx;
+  color: #333;
+}
+.form-input.disabled {
+  background: #f5f5f5;
+  color: #999;
+}
+.form-tip {
+  font-size: 24rpx;
+  color: #888;
+  margin-top: 10rpx;
+}
+.btn-primary {
+  height: 88rpx;
+  line-height: 88rpx;
+  background: #1890ff;
+  color: #fff;
+  font-size: 32rpx;
+  border-radius: 10rpx;
+}
+.btn-blue {
+  height: 88rpx;
+  line-height: 88rpx;
+  background: #007aff;
+  color: #fff;
+  font-size: 32rpx;
+  border-radius: 10rpx;
+}
+.btn-blue[disabled] {
+  background: #c9cdD4;
+  color: #fff;
+}
+
+/* 新增：WiFi配置提示样式 */
+.wifi-tip {
+  font-size: 24rpx;
+  color: #ff672b; /* 橙色文字 */
+  line-height: 1.6;
+  padding: 20rpx;
+  background-color: #fff8f5; /* 浅橙色背景 */
+  border-left: 4rpx solid #ff672b; /* 左侧橙色边框 */
+  border-radius: 8rpx;
+  margin: 10rpx 0 30rpx 0; /* 上下间距，和按钮分开 */
+}
