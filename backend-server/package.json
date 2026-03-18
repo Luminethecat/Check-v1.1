@@ -1,7 +1,7 @@
 {
   "name": "attendance-bishe",
   "version": "1.0.0",
-  "description": "考勤系统后端 - Supabase+GitHub Codespaces适配版",
+  "description": "考勤系统后端 - Supabase",
   "main": "app.js",
   "scripts": {
     "start": "node app.js",
