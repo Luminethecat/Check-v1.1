@@ -1,0 +1,13 @@
+# STM32编译产物
+fireware/Check/build/
+fireware/Check/cmake-build-*/
+# ESP8266编译产物
+fireware/WIFI/build/
+# Node.js依赖
+backend-server/node_modules/
+# VS Code缓存
+.vscode/extensions.json
+.vscode/launch.json
+# 系统缓存
+*.swp
+*.tmp
