@@ -1,0 +1,8 @@
+{
+	"InstallScripts" : 
+	[
+		"E:/STM32/bishe/25.12/ITEM/Check1.0/build/Debug/cmake_install.cmake",
+		"E:/STM32/bishe/25.12/ITEM/Check1.0/build/Debug/cmake/stm32cubemx/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
