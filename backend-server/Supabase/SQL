@@ -1,0 +1,104 @@
+-- =============================================
+-- 1. 管理员表
+-- =============================================
+CREATE TABLE IF NOT EXISTS admin (
+  id SERIAL PRIMARY KEY,
+  username VARCHAR(50) UNIQUE NOT NULL,
+  password VARCHAR(50) NOT NULL,
+  create_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO admin (username, password) 
+VALUES ('admin', '123456') 
+ON CONFLICT (username) DO NOTHING;
+
+-- =============================================
+-- 2. 员工表
+-- =============================================
+CREATE TABLE IF NOT EXISTS employee (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(50) NOT NULL,
+  dept VARCHAR(50) DEFAULT '未分配部门',
+  phone VARCHAR(20) DEFAULT '无',
+  user_id VARCHAR(50) UNIQUE NOT NULL,
+  password VARCHAR(50) DEFAULT '123456',
+  status SMALLINT DEFAULT 1, -- 1:启用 0:禁用
+  create_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO employee (name, dept, user_id, password) 
+VALUES ('测试员工', '技术部', '1001', '123456') 
+ON CONFLICT (user_id) DO NOTHING;
+
+-- =============================================
+-- 3. 打卡规则表
+-- =============================================
+CREATE TABLE IF NOT EXISTS attendance_rule (
+  id SERIAL PRIMARY KEY,
+  work_time VARCHAR(10) NOT NULL DEFAULT '09:00',
+  off_work_time VARCHAR(10) NOT NULL DEFAULT '18:00',
+  late_mins SMALLINT DEFAULT 15,
+  update_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO attendance_rule (id, work_time, off_work_time) 
+VALUES (1, '09:00', '18:00') 
+ON CONFLICT (id) DO NOTHING;
+
+-- =============================================
+-- 4. 打卡记录表（修正唯一约束语法）
+-- =============================================
+CREATE TABLE IF NOT EXISTS attendance (
+  id SERIAL PRIMARY KEY,
+  device_id VARCHAR(50) NOT NULL,
+  user_id VARCHAR(50) NOT NULL,
+  emp_name VARCHAR(50) NOT NULL,
+  emp_dept VARCHAR(50) DEFAULT '未分配部门',
+  check_time TIMESTAMP WITH TIME ZONE NOT NULL,
+  check_type_code SMALLINT DEFAULT 0,
+  check_type_desc VARCHAR(20) DEFAULT '正常打卡',
+  create_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  -- 标准PostgreSQL唯一约束写法（指定约束名）
+  CONSTRAINT uk_device_user_time UNIQUE (device_id, user_id, check_time)
+);
+
+-- =============================================
+-- 5. 考勤统计存储过程
+-- =============================================
+CREATE OR REPLACE FUNCTION get_emp_att_stat(p_start DATE, p_end DATE, p_work_time VARCHAR(10))
+RETURNS TABLE (
+  "员工姓名" VARCHAR(50),
+  "员工UID" VARCHAR(50),
+  "所属部门" VARCHAR(50),
+  "总打卡次数" INT,
+  "正常打卡次数" INT,
+  "迟到次数" INT,
+  "出勤率(%)" NUMERIC(5,2)
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    e.name AS "员工姓名",
+    e.user_id AS "员工UID",
+    COALESCE(e.dept, '未分配部门') AS "所属部门",
+    COUNT(a.id) AS "总打卡次数",
+    SUM(CASE WHEN TO_CHAR(a.check_time, 'HH24:MI') <= p_work_time THEN 1 ELSE 0 END) AS "正常打卡次数",
+    SUM(CASE WHEN TO_CHAR(a.check_time, 'HH24:MI') > p_work_time THEN 1 ELSE 0 END) AS "迟到次数",
+    ROUND(
+      COALESCE(SUM(CASE WHEN TO_CHAR(a.check_time, 'HH24:MI') <= p_work_time THEN 1 ELSE 0 END)::NUMERIC / NULLIF(COUNT(a.id), 0), 0) * 100,
+      2
+    ) AS "出勤率(%)"
+  FROM employee e
+  LEFT JOIN attendance a ON e.user_id = a.user_id
+    AND a.check_time BETWEEN (p_start::TIMESTAMP) AND (p_end::TIMESTAMP + INTERVAL '1 day - 1 millisecond')
+  GROUP BY e.name, e.user_id, e.dept
+  ORDER BY e.dept, e.name;
+END;
+$$ LANGUAGE plpgsql;
+
+
+
+-- 查询admin表中username=admin、password=123456的记录 //调试
+//SELECT * FROM admin WHERE username = 'admin' AND password = '123456';
+
+-- 权限配置
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO postgres;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO postgres;
+GRANT EXECUTE ON FUNCTION get_emp_att_stat(DATE, DATE, VARCHAR) TO postgres;
