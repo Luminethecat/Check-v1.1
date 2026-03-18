@@ -1,0 +1,26 @@
+{
+  "folders": [
+    {
+      "path": "fireware/Check",
+      "name": "STM32"
+    },
+    {
+      "path": "backend-server",
+      "name": "Backend"
+    },
+    {
+      "path": "fireware/WIFI",
+      "name": "ESP8266"
+    },
+    {
+      "path": "frontend",
+      "name": "Frontend"
+    }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/build/**": true,
+      "**/.cache/**": true
+    }
+  }
+}
