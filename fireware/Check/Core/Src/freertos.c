@@ -51,33 +51,67 @@
 /* USER CODE BEGIN Variables */
 
 /* USER CODE END Variables */
-/* Definitions for defaultTask */
-osThreadId_t defaultTaskHandle;
-const osThreadAttr_t defaultTask_attributes = {
-  .name = "defaultTask",
-  .stack_size = 128 * 4,
+/* Definitions for Mqtt_Report */
+osThreadId_t Mqtt_ReportHandle;
+const osThreadAttr_t Mqtt_Report_attributes = {
+  .name = "Mqtt_Report",
+  .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for Debug */
 osThreadId_t DebugHandle;
 const osThreadAttr_t Debug_attributes = {
   .name = "Debug",
+  .stack_size = 256 * 4,
+  .priority = (osPriority_t) osPriorityLow1,
+};
+/* Definitions for UART */
+osThreadId_t UARTHandle;
+const osThreadAttr_t UART_attributes = {
+  .name = "UART",
+  .stack_size = 1024 * 4,
+  .priority = (osPriority_t) osPriorityHigh,
+};
+/* Definitions for Display */
+osThreadId_t DisplayHandle;
+const osThreadAttr_t Display_attributes = {
+  .name = "Display",
+  .stack_size = 512 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
+/* Definitions for Check */
+osThreadId_t CheckHandle;
+const osThreadAttr_t Check_attributes = {
+  .name = "Check",
+  .stack_size = 1024 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for TimeSync */
+osThreadId_t TimeSyncHandle;
+const osThreadAttr_t TimeSync_attributes = {
+  .name = "TimeSync",
   .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+  .priority = (osPriority_t) osPriorityNormal,
 };
-/* Definitions for UART_Task */
-osThreadId_t UART_TaskHandle;
-const osThreadAttr_t UART_Task_attributes = {
-  .name = "UART_Task",
-  .stack_size = 512 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+/* Definitions for queue_checkin_data */
+osMessageQueueId_t queue_checkin_dataHandle;
+const osMessageQueueAttr_t queue_checkin_data_attributes = {
+  .name = "queue_checkin_data"
 };
-/* Definitions for App_Main_Task */
-osThreadId_t App_Main_TaskHandle;
-const osThreadAttr_t App_Main_Task_attributes = {
-  .name = "App_Main_Task",
-  .stack_size = 512 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+/* Definitions for sem_serial_frame */
+osSemaphoreId_t sem_serial_frameHandle;
+const osSemaphoreAttr_t sem_serial_frame_attributes = {
+  .name = "sem_serial_frame"
+};
+/* Definitions for mutex_spi */
+osSemaphoreId_t mutex_spiHandle;
+const osSemaphoreAttr_t mutex_spi_attributes = {
+  .name = "mutex_spi"
+};
+/* Definitions for mutex_i2c */
+osSemaphoreId_t mutex_i2cHandle;
+const osSemaphoreAttr_t mutex_i2c_attributes = {
+  .name = "mutex_i2c"
 };
 
 /* Private function prototypes -----------------------------------------------*/
@@ -85,10 +119,12 @@ const osThreadAttr_t App_Main_Task_attributes = {
 
 /* USER CODE END FunctionPrototypes */
 
-void StartDefaultTask(void *argument);
+void Mqtt_ReportTask(void *argument);
 void DebugTask(void *argument);
-void StartUART_Task(void *argument);
-void StartAppMainTask(void *argument);
+void UARTTask(void *argument);
+void DisplayTask(void *argument);
+void CheckTask(void *argument);
+void TimeSyncTask(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -106,6 +142,16 @@ void MX_FREERTOS_Init(void) {
   /* add mutexes, ... */
   /* USER CODE END RTOS_MUTEX */
 
+  /* Create the semaphores(s) */
+  /* creation of sem_serial_frame */
+  sem_serial_frameHandle = osSemaphoreNew(1, 0, &sem_serial_frame_attributes);
+
+  /* creation of mutex_spi */
+  mutex_spiHandle = osSemaphoreNew(1, 1, &mutex_spi_attributes);
+
+  /* creation of mutex_i2c */
+  mutex_i2cHandle = osSemaphoreNew(1, 1, &mutex_i2c_attributes);
+
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
   /* USER CODE END RTOS_SEMAPHORES */
@@ -114,24 +160,34 @@ void MX_FREERTOS_Init(void) {
   /* start timers, add new ones, ... */
   /* USER CODE END RTOS_TIMERS */
 
+  /* Create the queue(s) */
+  /* creation of queue_checkin_data */
+  queue_checkin_dataHandle = osMessageQueueNew (5, 28, &queue_checkin_data_attributes);
+
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
-  // 新增：创建帧解析队列（长度10，每个元素为FRAME_BUF_LEN字节）
-  frame_queue = xQueueCreate(10, FRAME_BUF_LEN);
+  // 新增：创建帧解析队列（长度10，每个元素为FRAME_MAX_LEN+1字节，第一字节为长度）
+  frame_queue = xQueueCreate(10, FRAME_MAX_LEN + 1);
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
-  /* creation of defaultTask */
-  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+  /* creation of Mqtt_Report */
+  Mqtt_ReportHandle = osThreadNew(Mqtt_ReportTask, NULL, &Mqtt_Report_attributes);
 
   /* creation of Debug */
   DebugHandle = osThreadNew(DebugTask, NULL, &Debug_attributes);
 
-  /* creation of UART_Task */
-  UART_TaskHandle = osThreadNew(StartUART_Task, NULL, &UART_Task_attributes);
+  /* creation of UART */
+  UARTHandle = osThreadNew(UARTTask, NULL, &UART_attributes);
 
-  /* creation of App_Main_Task */
-  App_Main_TaskHandle = osThreadNew(StartAppMainTask, NULL, &App_Main_Task_attributes);
+  /* creation of Display */
+  DisplayHandle = osThreadNew(DisplayTask, NULL, &Display_attributes);
+
+  /* creation of Check */
+  CheckHandle = osThreadNew(CheckTask, NULL, &Check_attributes);
+
+  /* creation of TimeSync */
+  TimeSyncHandle = osThreadNew(TimeSyncTask, NULL, &TimeSync_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -143,22 +199,22 @@ void MX_FREERTOS_Init(void) {
 
 }
 
-/* USER CODE BEGIN Header_StartDefaultTask */
+/* USER CODE BEGIN Header_Mqtt_ReportTask */
 /**
-  * @brief  Function implementing the defaultTask thread.
+  * @brief  Function implementing the Mqtt_Report thread.
   * @param  argument: Not used
   * @retval None
   */
-/* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void *argument)
+/* USER CODE END Header_Mqtt_ReportTask */
+void Mqtt_ReportTask(void *argument)
 {
-  /* USER CODE BEGIN StartDefaultTask */
+  /* USER CODE BEGIN Mqtt_ReportTask */
   /* Infinite loop */
   for(;;)
   {
     osDelay(1);
   }
-  /* USER CODE END StartDefaultTask */
+  /* USER CODE END Mqtt_ReportTask */
 }
 
 /* USER CODE BEGIN Header_DebugTask */
@@ -180,121 +236,83 @@ void DebugTask(void *argument)
   /* USER CODE END DebugTask */
 }
 
-/* USER CODE BEGIN Header_StartUART_Task */
+/* USER CODE BEGIN Header_UARTTask */
 /**
-* @brief Function implementing the UART_Task thread.
+* @brief Function implementing the UART thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_StartUART_Task */
-void StartUART_Task(void *argument)
+/* USER CODE END Header_UARTTask */
+void UARTTask(void *argument)
 {
-  /* USER CODE BEGIN StartUART_Task */
-/* USER CODE BEGIN StartUARTParseTask */
-  uint8_t recv_frame[FRAME_BUF_LEN] = {0};
-  
-  // 初始化CRC16表
-  CRC16_Modbus_Init_Table();
-  
-  // 开启串口中断接收（必须！否则无法接收ESP数据）
-  HAL_UART_Receive_IT(&huart1, &uart_recv_buf[0], 1);
-  
-  /* Infinite loop */
+  /* USER CODE BEGIN UARTTask */
+  uint8_t queue_msg[FRAME_MAX_LEN + 1];
   for(;;)
   {
-    // 从队列中读取ESP发来的完整帧（阻塞等待，超时100ms）
-    if (xQueueReceive(frame_queue, recv_frame, 100 / portTICK_PERIOD_MS) == pdTRUE)
+    if (xQueueReceive(frame_queue, queue_msg, portMAX_DELAY) == pdTRUE)
     {
-      uint8_t frame_type = recv_frame[1];
-      uint8_t data_len = recv_frame[2];
-      uint8_t *frame_data = &recv_frame[3];
-      // 新增：打印data_len，消除“未使用变量”警告
-      COM_DEBUG("当前帧数据长度：%d\r\n", data_len);
-      
-      // 解析不同类型的帧（根据ESP01S的帧类型）
-      switch(frame_type)
+      uint8_t frame_len = queue_msg[0];
+      if (frame_len > 0 && frame_len <= FRAME_MAX_LEN)
       {
-        case TYPE_BJ_TIME:  // 接收ESP发来的北京时间
-        {
-          char bj_time[21] = {0};
-          memcpy(bj_time, frame_data, 20);
-          bj_time[20] = '\0';
-          // 这里可以添加时间处理逻辑（比如更新STM32 RTC）
-          COM_DEBUG("收到北京时间：%s\r\n", bj_time);
-          break;
-        }
-        case TYPE_REMOTE_CHECKIN:  // 接收远程打卡指令
-        {
-          // 解析用户ID（4字节）
-          uint32_t user_id = (frame_data[0]<<24) | (frame_data[1]<<16) | (frame_data[2]<<8) | frame_data[3];
-          // 新增：打印user_id，消除“未使用变量”警告
-          COM_DEBUG("收到远程打卡指令，用户ID：%lu\r\n", user_id);
-          // 这里添加远程打卡逻辑（比如模拟打卡成功，发送TYPE_CHECK_DATA帧给ESP）
-          break;
-        }
-        case TYPE_SET_WORK_TIME:  // 接收打卡时间设置指令
-        {
-          char work_time[8] = {0}, off_time[8] = {0};
-          char *p = (char*)frame_data;
-          strncpy(work_time, p, strchr(p, '|') - p);
-          strncpy(off_time, strchr(p, '|')+1, 7);
-          // 这里添加保存打卡时间的逻辑
-          break;
-        }
-        default:
-          break;
+        Com_ProcessReceivedFrame(&queue_msg[1], frame_len);
       }
-      
-      memset(recv_frame, 0, FRAME_BUF_LEN);  // 清空帧缓冲区
     }
-    osDelay(10);
   }
-  /* USER CODE END StartUART_Task */
+  /* USER CODE END UARTTask */
 }
 
-/* USER CODE BEGIN Header_StartAppMainTask */
+/* USER CODE BEGIN Header_DisplayTask */
 /**
-* @brief Function implementing the App_Main_Task thread.
+* @brief Function implementing the Display thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_StartAppMainTask */
-void StartAppMainTask(void *argument)
+/* USER CODE END Header_DisplayTask */
+void DisplayTask(void *argument)
 {
-  /* USER CODE BEGIN StartAppMainTask */
-  /* Infinite loop */
-// 测试：每隔5秒向ESP发送时间请求帧
-  uint8_t test_data[1] = {0};
-  
+  /* USER CODE BEGIN DisplayTask */
   /* Infinite loop */
   for(;;)
   {
-    // 发送时间请求帧（TYPE_TIME_REQ）
-    SendFrameToESP(TYPE_TIME_REQ, test_data, 1);
-    
-    // 模拟打卡数据（测试用）
-    uint8_t check_data[25] = {0};
-    uint32_t user_id = 1001;  // 测试用户ID
-    char check_time[20] = "2026-02-10 09:00:00";  // 测试打卡时间
-    
-    // 填充用户ID（4字节）
-    check_data[0] = (user_id >> 24) & 0xFF;
-    check_data[1] = (user_id >> 16) & 0xFF;
-    check_data[2] = (user_id >> 8) & 0xFF;
-    check_data[3] = user_id & 0xFF;
-    
-    // 填充打卡时间（20字节）
-    memcpy(&check_data[4], check_time, 20);
-    
-    // 填充打卡类型（0x01=上班打卡）
-    check_data[24] = 0x01;
-    
-    // 发送打卡帧到ESP
-    SendFrameToESP(TYPE_CHECK_DATA, check_data, 25);
-    
-    osDelay(5000);  // 5秒间隔
+    osDelay(1);
   }
-  /* USER CODE END StartAppMainTask */
+  /* USER CODE END DisplayTask */
+}
+
+/* USER CODE BEGIN Header_CheckTask */
+/**
+* @brief Function implementing the Check thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_CheckTask */
+void CheckTask(void *argument)
+{
+  /* USER CODE BEGIN CheckTask */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END CheckTask */
+}
+
+/* USER CODE BEGIN Header_TimeSyncTask */
+/**
+* @brief Function implementing the TimeSync thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_TimeSyncTask */
+void TimeSyncTask(void *argument)
+{
+  /* USER CODE BEGIN TimeSyncTask */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END TimeSyncTask */
 }
 
 /* Private application code --------------------------------------------------*/

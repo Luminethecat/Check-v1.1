@@ -19,7 +19,11 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
+#include "dac.h"
+#include "dma.h"
+#include "i2c.h"
 #include "rtc.h"
+#include "spi.h"
 #include "usart.h"
 #include "gpio.h"
 
@@ -27,6 +31,7 @@
 /* USER CODE BEGIN Includes */
 #include "Com_debug.h"
 #include "stdio.h"
+#include "Com_protocol.h"
 
   PUTCHAR_PROTOTYPE 
 {
@@ -99,13 +104,19 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_RTC_Init();
   MX_USART3_UART_Init();
   MX_USART1_UART_Init();
+  MX_DAC_Init();
+  MX_I2C1_Init();
+  MX_SPI1_Init();
+  MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
   
 
   COM_DEBUG("System Init\r\n");
+  Com_Protocol_Init();
 
   //printf("STM32F103\r\n");
  // HAL_UART_Transmit(&huart3, (uint8_t *)"hellow\r\n", 6, HAL_MAX_DELAY);
@@ -181,6 +192,28 @@ void SystemClock_Config(void)
 /* USER CODE BEGIN 4 */
 
 /* USER CODE END 4 */
+
+/**
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM4 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  /* USER CODE BEGIN Callback 0 */
+
+  /* USER CODE END Callback 0 */
+  if (htim->Instance == TIM4)
+  {
+    HAL_IncTick();
+  }
+  /* USER CODE BEGIN Callback 1 */
+
+  /* USER CODE END Callback 1 */
+}
 
 /**
   * @brief  This function is executed in case of error occurrence.
