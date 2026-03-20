@@ -7,6 +7,40 @@
 
 extern RTC_HandleTypeDef hrtc;
 
+static uint8_t Com_SetRTCTimeFromString(const char *timeStr)
+{
+    if (timeStr == NULL) return 0;
+    int year, month, day, hour, min, sec;
+    if (sscanf(timeStr, "%d-%d-%d %d:%d:%d", &year, &month, &day, &hour, &min, &sec) != 6) {
+        return 0;
+    }
+    if (year < 2000 || year > 2099 || month < 1 || month > 12 || day < 1 || day > 31 ||
+        hour < 0 || hour > 23 || min < 0 || min > 59 || sec < 0 || sec > 59) {
+        return 0;
+    }
+    RTC_DateTypeDef sDate;
+    RTC_TimeTypeDef sTime;
+    sDate.Year = year - 2000;
+    sDate.Month = month;
+    sDate.Date = day;
+    // 不设置周几
+    sDate.WeekDay = 0;
+    sTime.Hours = hour;
+    sTime.Minutes = min;
+    sTime.Seconds = sec;
+    sTime.TimeFormat = RTC_HOURFORMAT12_AM;
+    sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+    sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+
+    if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK) {
+        return 0;
+    }
+    if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK) {
+        return 0;
+    }
+    return 1;
+}
+
 // CRC16-MODBUS查表法全局变量
 static uint16_t crc_table[256];
 
@@ -151,32 +185,27 @@ uint8_t Com_HandleFrame(FrameStruct_t *frame)
     COM_DEBUG("Handle frame type=0x%02X len=%d", frame->frame_type, frame->data_len);
     switch (frame->frame_type)
     {
-        case TYPE_TIME_REQ:
+        case TYPE_BJ_TIME:
         {
-            char ts[32] = {0};
-            RTC_DateTypeDef sDate;
-            RTC_TimeTypeDef sTime;
-            HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
-            HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN);
-            snprintf(ts, sizeof(ts), "%04d-%02d-%02d %02d:%02d:%02d", 2000 + sDate.Year, sDate.Month, sDate.Date, sTime.Hours, sTime.Minutes, sTime.Seconds);
-            SendFrameToESP(TYPE_BJ_TIME, (uint8_t *)ts, strlen(ts));
-            COM_DEBUG("Reply BJ time: %s", ts);
-            break;
-        }
-        case TYPE_CHECK_DATA:
-        {
-            COM_DEBUG("TYPE_CHECK_DATA received, data_len=%d", frame->data_len);
-            // 这里把打卡数据分发到上层，比如 queue_checkin_data
+            // ESP 下发北京时间，STM32同步 RTC
+            COM_DEBUG("TYPE_BJ_TIME received data_len=%d: %.*s", frame->data_len, frame->data_len, frame->data);
+            if (Com_SetRTCTimeFromString((const char*)frame->data)) {
+                COM_DEBUG("RTC time updated from BJ time");
+            } else {
+                COM_DEBUG("RTC time parse failed, ignore");
+            }
             break;
         }
         case TYPE_ADD_USER:
         {
-            COM_DEBUG("TYPE_ADD_USER received");
+            COM_DEBUG("TYPE_ADD_USER received data_len=%d", frame->data_len);
+            // 新增用户处理
             break;
         }
         case TYPE_REMOTE_CHECKIN:
         {
-            COM_DEBUG("TYPE_REMOTE_CHECKIN received");
+            COM_DEBUG("TYPE_REMOTE_CHECKIN received data_len=%d", frame->data_len);
+            // 远程打卡处理
             break;
         }
         case TYPE_RESTART_STM32:
@@ -188,6 +217,19 @@ uint8_t Com_HandleFrame(FrameStruct_t *frame)
         case TYPE_SET_WORK_TIME:
         {
             COM_DEBUG("TYPE_SET_WORK_TIME received: %.*s", frame->data_len, frame->data);
+            // 设置上下班时间处理
+            break;
+        }
+        case TYPE_TIME_REQ:
+        {
+            // STM32不应该收到该帧，忽略
+            COM_DEBUG("TYPE_TIME_REQ received unexpectedly, ignore");
+            break;
+        }
+        case TYPE_CHECK_DATA:
+        {
+            // STM32发给ESP的帧，不在本端接收处理
+            COM_DEBUG("TYPE_CHECK_DATA received unexpectedly, ignore");
             break;
         }
         default:
