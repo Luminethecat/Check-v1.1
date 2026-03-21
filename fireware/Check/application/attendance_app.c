@@ -80,6 +80,57 @@ static const char *Attendance_ResultText(AttendanceResultTypeDef result)
   }
 }
 
+static uint8_t Attendance_ToBcdDigit(uint16_t value)
+{
+  return (uint8_t)('0' + (value % 10U));
+}
+
+static void Attendance_FormatEspTime(const AttendanceDateTimeTypeDef *timestamp,
+                                     uint8_t out_time[20])
+{
+  uint16_t year;
+  uint8_t month;
+  uint8_t day;
+  uint8_t hour;
+  uint8_t minute;
+  uint8_t second;
+
+  if (timestamp == NULL || out_time == NULL)
+  {
+    return;
+  }
+
+  /* 这里固定按 "YYYY-MM-DD HH:MM:SS" 共 19 个字符编码，
+   * 避免 snprintf 因整数理论范围触发 format-truncation 告警。 */
+  year = (timestamp->year > 9999U) ? 9999U : timestamp->year;
+  month = (timestamp->month > 99U) ? 99U : timestamp->month;
+  day = (timestamp->day > 99U) ? 99U : timestamp->day;
+  hour = (timestamp->hour > 99U) ? 99U : timestamp->hour;
+  minute = (timestamp->minute > 99U) ? 99U : timestamp->minute;
+  second = (timestamp->second > 99U) ? 99U : timestamp->second;
+
+  out_time[0] = (uint8_t)('0' + ((year / 1000U) % 10U));
+  out_time[1] = (uint8_t)('0' + ((year / 100U) % 10U));
+  out_time[2] = (uint8_t)('0' + ((year / 10U) % 10U));
+  out_time[3] = Attendance_ToBcdDigit(year);
+  out_time[4] = '-';
+  out_time[5] = (uint8_t)('0' + ((month / 10U) % 10U));
+  out_time[6] = Attendance_ToBcdDigit(month);
+  out_time[7] = '-';
+  out_time[8] = (uint8_t)('0' + ((day / 10U) % 10U));
+  out_time[9] = Attendance_ToBcdDigit(day);
+  out_time[10] = ' ';
+  out_time[11] = (uint8_t)('0' + ((hour / 10U) % 10U));
+  out_time[12] = Attendance_ToBcdDigit(hour);
+  out_time[13] = ':';
+  out_time[14] = (uint8_t)('0' + ((minute / 10U) % 10U));
+  out_time[15] = Attendance_ToBcdDigit(minute);
+  out_time[16] = ':';
+  out_time[17] = (uint8_t)('0' + ((second / 10U) % 10U));
+  out_time[18] = Attendance_ToBcdDigit(second);
+  out_time[19] = '\0';
+}
+
 void Attendance_Init(void)
 {
   Attendance_SetDefaultSchedule();
@@ -258,15 +309,7 @@ uint8_t Attendance_BuildEspCheckData(const AttendanceEventTypeDef *event,
   payload[2] = (uint8_t)(event->user_id >> 8U);
   payload[3] = (uint8_t)(event->user_id);
 
-  snprintf((char *)&payload[4],
-           21U,
-           "%04u-%02u-%02u %02u:%02u:%02u",
-           event->timestamp.year,
-           event->timestamp.month,
-           event->timestamp.day,
-           event->timestamp.hour,
-           event->timestamp.minute,
-           event->timestamp.second);
+  Attendance_FormatEspTime(&event->timestamp, &payload[4]);
 
   payload[24] = Attendance_ResultToEspType(event->result);
   return 1U;

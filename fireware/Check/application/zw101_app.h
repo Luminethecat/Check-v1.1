@@ -27,6 +27,9 @@ typedef struct
 } ZW101_SearchResultTypeDef;
 
 void ZW101_Init(void);
+void ZW101_IrqNotify(void);
+uint8_t ZW101_IrqConsumePending(void);
+uint8_t ZW101_IrqIsActiveLevel(void);
 ZW101_StatusTypeDef ZW101_VerifyPassword(uint32_t password);
 ZW101_StatusTypeDef ZW101_CollectImage(void);
 ZW101_StatusTypeDef ZW101_GenerateChar(uint8_t buffer_id);

@@ -22,6 +22,7 @@
 #define ZW101_CONFIRM_NOT_FOUND        0x09U
 
 static UART_HandleTypeDef *const zw101_uart = &APP_ZW101_UART_HANDLE;
+static volatile uint8_t g_zw101_irq_pending;
 
 static ZW101_StatusTypeDef ZW101_SendPacket(uint8_t packet_type,
                                             const uint8_t *payload,
@@ -163,6 +164,26 @@ static ZW101_StatusTypeDef ZW101_RunCommand(const uint8_t *cmd_payload,
 
 void ZW101_Init(void)
 {
+  g_zw101_irq_pending = 0U;
+}
+
+void ZW101_IrqNotify(void)
+{
+  g_zw101_irq_pending = 1U;
+}
+
+uint8_t ZW101_IrqConsumePending(void)
+{
+  uint8_t pending = g_zw101_irq_pending;
+
+  g_zw101_irq_pending = 0U;
+  return pending;
+}
+
+uint8_t ZW101_IrqIsActiveLevel(void)
+{
+  /* 当前模块 IRQ 有效电平为高，任务层可据此做一次软件确认。 */
+  return (HAL_GPIO_ReadPin(APP_ZW101_IRQ_GPIO_Port, APP_ZW101_IRQ_Pin) == GPIO_PIN_SET) ? 1U : 0U;
 }
 
 ZW101_StatusTypeDef ZW101_VerifyPassword(uint32_t password)

@@ -2,7 +2,7 @@
 
 #include "main.h"
 
-#define KEY_ACTIVE_LEVEL               GPIO_PIN_SET
+#define KEY_ACTIVE_LEVEL               GPIO_PIN_RESET
 #define KEY_LONGPRESS_MS               3000U
 #define KEY_DEBOUNCE_MS                30U
 

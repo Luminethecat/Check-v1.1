@@ -16,6 +16,7 @@
 #define RUNTIME_RESULT_HOLD_MS            3000U
 #define RUNTIME_TIME_SYNC_PERIOD_MS       10000U
 #define RUNTIME_FINGER_SCAN_PERIOD_MS     1500U
+#define RUNTIME_FINGER_IRQ_GRACE_MS       2500U
 
 typedef enum
 {
@@ -220,14 +221,26 @@ static void RuntimeManager_PollCard(void)
 static void RuntimeManager_PollFinger(void)
 {
   ZW101_SearchResultTypeDef result;
+  uint32_t now_tick = HAL_GetTick();
+  uint8_t irq_pending = ZW101_IrqConsumePending();
+  uint8_t irq_active = ZW101_IrqIsActiveLevel();
 
-  /* 指纹模块查询频率不宜太高，避免串口占用和误触发。 */
-  if ((HAL_GetTick() - g_runtime.last_finger_scan_tick) < RUNTIME_FINGER_SCAN_PERIOD_MS)
+  /* IRQ 触发后优先识别；若中断丢失，再用低频轮询兜底。 */
+  if (irq_pending == 0U &&
+      irq_active == 0U &&
+      (now_tick - g_runtime.last_finger_scan_tick) < RUNTIME_FINGER_SCAN_PERIOD_MS)
   {
     return;
   }
 
-  g_runtime.last_finger_scan_tick = HAL_GetTick();
+  if (irq_pending == 0U &&
+      irq_active != 0U &&
+      (now_tick - g_runtime.last_finger_scan_tick) < RUNTIME_FINGER_IRQ_GRACE_MS)
+  {
+    return;
+  }
+
+  g_runtime.last_finger_scan_tick = now_tick;
   if (App_Zw101_IdentifyUser(ZW101_DEFAULT_PASSWORD, &result) == ZW101_OK)
   {
     RuntimeManager_HandleFingerCheckIn(result.page_id);

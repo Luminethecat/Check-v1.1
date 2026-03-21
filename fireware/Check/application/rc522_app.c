@@ -41,6 +41,20 @@
 
 static SPI_HandleTypeDef *const rc522_spi = &APP_RC522_SPI_HANDLE;
 
+static void RC522_ResetPin(GPIO_PinState level)
+{
+  HAL_GPIO_WritePin(APP_RC522_RST_GPIO_Port, APP_RC522_RST_Pin, level);
+}
+
+static void RC522_HardReset(void)
+{
+  /* 先给 RC522 一个明确的硬复位脉冲，再做软复位，启动更稳。 */
+  RC522_ResetPin(GPIO_PIN_RESET);
+  HAL_Delay(2U);
+  RC522_ResetPin(GPIO_PIN_SET);
+  HAL_Delay(10U);
+}
+
 static void RC522_Select(void)
 {
   HAL_GPIO_WritePin(APP_RC522_CS_GPIO_Port, APP_RC522_CS_Pin, GPIO_PIN_RESET);
@@ -315,7 +329,7 @@ static void RC522_StopCrypto1(void)
 void RC522_Init(void)
 {
   RC522_Unselect();
-  HAL_Delay(5U);
+  RC522_HardReset();
   RC522_WriteRegister(RC522_REG_COMMAND, RC522_CMD_SOFTRESET);
   HAL_Delay(50U);
 
