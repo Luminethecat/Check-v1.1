@@ -32,6 +32,7 @@
 #include "Com_debug.h"
 #include "stdio.h"
 #include "Com_protocol.h"
+#include "application.h"
 
   PUTCHAR_PROTOTYPE 
 {
@@ -112,11 +113,13 @@ int main(void)
   MX_I2C1_Init();
   MX_SPI1_Init();
   MX_SPI2_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
   
 
   COM_DEBUG("System Init\r\n");
   Com_Protocol_Init();
+  Application_Init();
 
   //printf("STM32F103\r\n");
  // HAL_UART_Transmit(&huart3, (uint8_t *)"hellow\r\n", 6, HAL_MAX_DELAY);

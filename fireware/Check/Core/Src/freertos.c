@@ -27,6 +27,8 @@
 /* USER CODE BEGIN Includes */
 #include "Com_debug.h"
 #include "Com_protocol.h"
+#include "oled_ssd1306.h"
+#include "runtime_manager.h"
 #include "usart.h"
 #include "string.h"
 
@@ -135,6 +137,7 @@ void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
   */
 void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
+  RuntimeManager_Init();
 
   /* USER CODE END Init */
 
@@ -271,10 +274,14 @@ void UARTTask(void *argument)
 void DisplayTask(void *argument)
 {
   /* USER CODE BEGIN DisplayTask */
+  AttendanceDisplayModelTypeDef display;
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+    RuntimeManager_DisplayTaskStep();
+    RuntimeManager_GetDisplaySnapshot(&display);
+    Oled_RenderDisplayModel(&display);
+    osDelay(200);
   }
   /* USER CODE END DisplayTask */
 }
@@ -292,7 +299,8 @@ void CheckTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+    RuntimeManager_CheckTaskStep();
+    osDelay(100);
   }
   /* USER CODE END CheckTask */
 }
@@ -310,7 +318,8 @@ void TimeSyncTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+    RuntimeManager_TimeSyncTaskStep();
+    osDelay(1000);
   }
   /* USER CODE END TimeSyncTask */
 }

@@ -2,6 +2,7 @@
 #include "Com_debug.h"
 #include "usart.h"
 #include "main.h"
+#include "attendance_app.h"
 #include "string.h"
 #include <stdio.h>
 
@@ -28,9 +29,7 @@ static uint8_t Com_SetRTCTimeFromString(const char *timeStr)
     sTime.Hours = hour;
     sTime.Minutes = min;
     sTime.Seconds = sec;
-    sTime.TimeFormat = RTC_HOURFORMAT12_AM;
-    sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
-    sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+
 
     if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK) {
         return 0;
@@ -111,6 +110,10 @@ uint8_t Com_Frame_Parse(uint8_t *buf, uint8_t len, FrameStruct_t *frame)
     {
         memcpy(frame->data, &buf[3], data_len);
     }
+    if (data_len < sizeof(frame->data))
+    {
+        frame->data[data_len] = 0;
+    }
     frame->crc = (buf[3 + data_len] << 8) | buf[4 + data_len];
 
     uint16_t crc_calc = Com_CRC16_Modbus_Table(frame->data, frame->data_len);
@@ -169,7 +172,7 @@ void Com_Protocol_Init(void)
 
 uint8_t Com_ProcessReceivedFrame(uint8_t *frame_buf, uint8_t len)
 {
-    FrameStruct_t frame;
+    FrameStruct_t frame = {0};
     uint8_t ok = Com_Frame_Parse(frame_buf, len, &frame);
     if (ok == 0) {
         COM_DEBUG("Parse failed for frame len=%d", len);
@@ -190,6 +193,7 @@ uint8_t Com_HandleFrame(FrameStruct_t *frame)
             // ESP 下发北京时间，STM32同步 RTC
             COM_DEBUG("TYPE_BJ_TIME received data_len=%d: %.*s", frame->data_len, frame->data_len, frame->data);
             if (Com_SetRTCTimeFromString((const char*)frame->data)) {
+                Attendance_SetRtcValid(1U);
                 COM_DEBUG("RTC time updated from BJ time");
             } else {
                 COM_DEBUG("RTC time parse failed, ignore");
@@ -217,6 +221,11 @@ uint8_t Com_HandleFrame(FrameStruct_t *frame)
         case TYPE_SET_WORK_TIME:
         {
             COM_DEBUG("TYPE_SET_WORK_TIME received: %.*s", frame->data_len, frame->data);
+            if (Attendance_SetScheduleFromString((const char*)frame->data)) {
+                COM_DEBUG("work schedule updated");
+            } else {
+                COM_DEBUG("work schedule parse failed");
+            }
             // 设置上下班时间处理
             break;
         }
