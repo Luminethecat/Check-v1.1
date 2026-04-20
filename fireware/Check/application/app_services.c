@@ -78,27 +78,3 @@ ZW101_StatusTypeDef App_Zw101_IdentifyUser(uint32_t password, ZW101_SearchResult
   /* 识别流程同样先验密，便于和录入流程保持一致。 */
   return ZW101_Identify(result);
 }
-
-W25Q32_StatusTypeDef App_W25Q32_ReadBytes(uint32_t flash_addr, uint8_t *buffer, uint32_t length)
-{
-  return W25Q32_ReadData(flash_addr, buffer, length);
-}
-
-AudioDac_StatusTypeDef App_Audio_PlayFromFlashU8(uint32_t flash_addr,
-                                                 uint8_t *cache,
-                                                 uint32_t sample_count,
-                                                 uint32_t sample_rate_hz)
-{
-  if (cache == NULL)
-  {
-    return AUDIO_DAC_ERROR;
-  }
-
-  if (W25Q32_ReadData(flash_addr, cache, sample_count) != W25Q32_OK)
-  {
-    return AUDIO_DAC_ERROR;
-  }
-
-  /* 当前版本先把一段音频完整读入 RAM，再交给 DAC DMA 播放。 */
-  return AudioDac_PlayU8Mono(cache, sample_count, sample_rate_hz);
-}

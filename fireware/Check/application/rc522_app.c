@@ -77,7 +77,7 @@ static void RC522_WriteRegister(uint8_t reg, uint8_t value)
   RC522_Unselect();
 }
 
-static uint8_t RC522_ReadRegister(uint8_t reg)
+uint8_t RC522_ReadRegister(uint8_t reg)
 {
   uint8_t tx_data[2];
   uint8_t rx_data[2] = {0U, 0U};

@@ -9,16 +9,13 @@ extern "C" {
 #include "spi.h"
 #include "usart.h"
 #include "dac.h"
+#include "Com_debug.h"
 
 #define APP_RC522_SPI_HANDLE           hspi2
 #define APP_RC522_CS_GPIO_Port         RC522_CS_GPIO_Port
 #define APP_RC522_CS_Pin               RC522_CS_Pin
 #define APP_RC522_RST_GPIO_Port        RC522_RST_GPIO_Port
 #define APP_RC522_RST_Pin              RC522_RST_Pin
-
-#define APP_W25Q32_SPI_HANDLE          hspi1
-#define APP_W25Q32_CS_GPIO_Port        SPI1_CS_GPIO_Port
-#define APP_W25Q32_CS_Pin              SPI1_CS_Pin
 
 #define APP_ZW101_UART_HANDLE          huart2
 #define APP_ZW101_IRQ_GPIO_Port        IRQ_GPIO_Port

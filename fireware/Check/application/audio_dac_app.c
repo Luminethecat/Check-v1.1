@@ -1,262 +1,118 @@
 #include "audio_dac_app.h"
+#include "main.h"
+#include "cmsis_os.h"
+#include "dac.h"
+#include "stm32f1xx_hal.h"
 
-#include "app_board.h"
-#include "stm32f1xx_hal_dac_ex.h"
-#include "stm32f1xx_hal_rcc_ex.h"
-#include "stm32f1xx_hal_tim.h"
+extern DAC_HandleTypeDef hdac;
 
-/* DAC 播放改成 TIM6 触发 + DMA 推送：
- * W25Q32 读出的 PCM 数据先转到 audio_dma_buffer，再由定时器稳定输出。 */
+#define DAC_MID       2048
+#define DAC_VOLUME    40
 
-#define AUDIO_DAC_TIMER_BASE_HZ            1000000UL
 
-static TIM_HandleTypeDef htim6_audio;
-static uint16_t audio_dma_buffer[AUDIO_DAC_MAX_SAMPLES];
-static uint8_t audio_volume_percent = 100U;
-static uint8_t audio_is_playing = 0U;
-static uint8_t audio_is_initialized = 0U;
+/* ================= Tone 播放函数 ================= */
 
-static uint16_t AudioDac_ApplyVolume12Bit(uint16_t sample)
+static void play_tone(
+        uint16_t freq_hz,
+        uint16_t duration_ms,
+        uint16_t amplitude)
 {
-  uint32_t scaled = ((uint32_t)sample * audio_volume_percent) / 100U;
+    uint32_t period_us = 1000000 / freq_hz;
+    uint32_t half_period_us = period_us / 2;
 
-  if (scaled > 4095U)
-  {
-    scaled = 4095U;
-  }
+    uint32_t delay_ms = half_period_us / 1000;
 
-  return (uint16_t)scaled;
+    if(delay_ms == 0)
+        delay_ms = 1;
+
+    uint32_t end_tick =
+        xTaskGetTickCount() + pdMS_TO_TICKS(duration_ms);
+
+    uint16_t high = DAC_MID + amplitude;
+    uint16_t low  = DAC_MID - amplitude;
+
+    while(xTaskGetTickCount() < end_tick)
+    {
+        HAL_DAC_SetValue(
+            &hdac,
+            DAC_CHANNEL_1,
+            DAC_ALIGN_12B_R,
+            high);
+
+        osDelay(delay_ms);
+
+        HAL_DAC_SetValue(
+            &hdac,
+            DAC_CHANNEL_1,
+            DAC_ALIGN_12B_R,
+            low);
+
+        osDelay(delay_ms);
+    }
+
+    HAL_DAC_SetValue(
+        &hdac,
+        DAC_CHANNEL_1,
+        DAC_ALIGN_12B_R,
+        DAC_MID);
 }
 
-static uint32_t AudioDac_GetTim6ClockHz(void)
+
+/* ================= DAC 初始化 ================= */
+
+void DAC_Sound_Init(void)
 {
-  RCC_ClkInitTypeDef clk_config;
-  uint32_t flash_latency;
-  uint32_t pclk1_hz;
+    DAC_ChannelConfTypeDef sConfig = {0};
 
-  HAL_RCC_GetClockConfig(&clk_config, &flash_latency);
-  pclk1_hz = HAL_RCC_GetPCLK1Freq();
+    sConfig.DAC_Trigger = DAC_TRIGGER_NONE;
+    sConfig.DAC_OutputBuffer = DAC_OUTPUTBUFFER_ENABLE;
 
-  /* APB1 被分频时，定时器时钟会自动翻倍。 */
-  if (clk_config.APB1CLKDivider == RCC_HCLK_DIV1)
-  {
-    return pclk1_hz;
-  }
+    HAL_DAC_ConfigChannel(
+        &hdac,
+        &sConfig,
+        DAC_CHANNEL_1);
 
-  return pclk1_hz * 2UL;
+    HAL_DAC_Start(
+        &hdac,
+        DAC_CHANNEL_1);
+
+    HAL_DAC_SetValue(
+        &hdac,
+        DAC_CHANNEL_1,
+        DAC_ALIGN_12B_R,
+        DAC_MID);
 }
 
-static HAL_StatusTypeDef AudioDac_ConfigTimer(uint32_t sample_rate_hz)
+
+/* ================= 声音函数 ================= */
+
+void DAC_Sound_Beep(void)
 {
-  TIM_MasterConfigTypeDef master_config;
-  uint32_t tim_clk_hz;
-  uint32_t prescaler;
-  uint32_t period;
-
-  if (sample_rate_hz == 0U)
-  {
-    return HAL_ERROR;
-  }
-
-  tim_clk_hz = AudioDac_GetTim6ClockHz();
-  if (tim_clk_hz < AUDIO_DAC_TIMER_BASE_HZ)
-  {
-    return HAL_ERROR;
-  }
-
-  /* 先把 TIM6 规整到 1MHz 基准，再通过 ARR 得到最终采样率。 */
-  prescaler = (tim_clk_hz / AUDIO_DAC_TIMER_BASE_HZ) - 1UL;
-  period = (AUDIO_DAC_TIMER_BASE_HZ / sample_rate_hz);
-  if (period == 0U)
-  {
-    return HAL_ERROR;
-  }
-
-  __HAL_RCC_TIM6_CLK_ENABLE();
-
-  htim6_audio.Instance = TIM6;
-  htim6_audio.Init.Prescaler = (uint16_t)prescaler;
-  htim6_audio.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim6_audio.Init.Period = (uint16_t)(period - 1UL);
-  htim6_audio.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-
-  if (HAL_TIM_Base_Init(&htim6_audio) != HAL_OK)
-  {
-    return HAL_ERROR;
-  }
-
-  master_config.MasterOutputTrigger = TIM_TRGO_UPDATE;
-  master_config.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim6_audio, &master_config) != HAL_OK)
-  {
-    return HAL_ERROR;
-  }
-
-  return HAL_OK;
+    play_tone(1500, 80, DAC_VOLUME);
 }
 
-static HAL_StatusTypeDef AudioDac_ConfigPeripheral(void)
+
+void DAC_Sound_Success(void)
 {
-  DAC_ChannelConfTypeDef dac_config;
-  DMA_HandleTypeDef *dma_handle = APP_AUDIO_DAC_HANDLE.DMA_Handle1;
+    play_tone(1200, 80, DAC_VOLUME);
 
-  if (dma_handle == NULL)
-  {
-    return HAL_ERROR;
-  }
+    osDelay(30);
 
-  /* 语音提示播完即停，因此 DMA 用 NORMAL 模式而不是循环模式。 */
-  (void)HAL_DMA_DeInit(dma_handle);
-  dma_handle->Init.Mode = DMA_NORMAL;
-  if (HAL_DMA_Init(dma_handle) != HAL_OK)
-  {
-    return HAL_ERROR;
-  }
-
-  (void)HAL_DAC_Stop(&APP_AUDIO_DAC_HANDLE, APP_AUDIO_DAC_CHANNEL);
-
-  dac_config.DAC_Trigger = DAC_TRIGGER_T6_TRGO;
-  dac_config.DAC_OutputBuffer = DAC_OUTPUTBUFFER_ENABLE;
-  if (HAL_DAC_ConfigChannel(&APP_AUDIO_DAC_HANDLE, &dac_config, APP_AUDIO_DAC_CHANNEL) != HAL_OK)
-  {
-    return HAL_ERROR;
-  }
-
-  return HAL_OK;
+    play_tone(1800, 120, DAC_VOLUME);
 }
 
-static AudioDac_StatusTypeDef AudioDac_StartBuffer(uint32_t sample_count, uint32_t sample_rate_hz)
+
+void DAC_Sound_Error(void)
 {
-  if (sample_count == 0U || sample_count > AUDIO_DAC_MAX_SAMPLES)
-  {
-    return AUDIO_DAC_ERROR;
-  }
-
-  if (audio_is_playing != 0U)
-  {
-    return AUDIO_DAC_BUSY;
-  }
-
-  if (AudioDac_ConfigTimer(sample_rate_hz) != HAL_OK)
-  {
-    return AUDIO_DAC_ERROR;
-  }
-
-  audio_is_playing = 1U;
-  /* 先启 DAC DMA，再启 TIM6，避免触发早到导致首个采样丢失。 */
-  if (HAL_DAC_Start_DMA(&APP_AUDIO_DAC_HANDLE,
-                        APP_AUDIO_DAC_CHANNEL,
-                        (uint32_t *)audio_dma_buffer,
-                        sample_count,
-                        DAC_ALIGN_12B_R) != HAL_OK)
-  {
-    audio_is_playing = 0U;
-    return AUDIO_DAC_ERROR;
-  }
-
-  if (HAL_TIM_Base_Start(&htim6_audio) != HAL_OK)
-  {
-    (void)HAL_DAC_Stop_DMA(&APP_AUDIO_DAC_HANDLE, APP_AUDIO_DAC_CHANNEL);
-    audio_is_playing = 0U;
-    return AUDIO_DAC_ERROR;
-  }
-
-  return AUDIO_DAC_OK;
+    play_tone(500, 250, DAC_VOLUME);
 }
 
-void AudioDac_Init(void)
+
+void DAC_Sound_Welcome(void)
 {
-  if (AudioDac_ConfigPeripheral() != HAL_OK)
-  {
-    return;
-  }
+    play_tone(800, 120, DAC_VOLUME);
 
-  if (AudioDac_ConfigTimer(8000U) != HAL_OK)
-  {
-    return;
-  }
+    osDelay(40);
 
-  audio_is_initialized = 1U;
-  /* 空闲时保持中点电平，减小扬声器直流冲击。 */
-  HAL_DAC_SetValue(&APP_AUDIO_DAC_HANDLE, APP_AUDIO_DAC_CHANNEL, DAC_ALIGN_12B_R, 2048U);
-}
-
-void AudioDac_SetVolume(uint8_t percent)
-{
-  if (percent > 100U)
-  {
-    percent = 100U;
-  }
-
-  audio_volume_percent = percent;
-}
-
-AudioDac_StatusTypeDef AudioDac_PlayU8Mono(const uint8_t *samples,
-                                           uint32_t sample_count,
-                                           uint32_t sample_rate_hz)
-{
-  uint32_t idx;
-
-  if (audio_is_initialized == 0U || samples == NULL || sample_count == 0U || sample_count > AUDIO_DAC_MAX_SAMPLES)
-  {
-    return AUDIO_DAC_ERROR;
-  }
-
-  for (idx = 0U; idx < sample_count; idx++)
-  {
-    /* 8bit 无符号 PCM 左移到 12bit DAC 范围。 */
-    audio_dma_buffer[idx] = AudioDac_ApplyVolume12Bit((uint16_t)samples[idx] << 4U);
-  }
-
-  return AudioDac_StartBuffer(sample_count, sample_rate_hz);
-}
-
-AudioDac_StatusTypeDef AudioDac_PlayU12Mono(const uint16_t *samples,
-                                            uint32_t sample_count,
-                                            uint32_t sample_rate_hz)
-{
-  uint32_t idx;
-
-  if (audio_is_initialized == 0U || samples == NULL || sample_count == 0U || sample_count > AUDIO_DAC_MAX_SAMPLES)
-  {
-    return AUDIO_DAC_ERROR;
-  }
-
-  for (idx = 0U; idx < sample_count; idx++)
-  {
-    audio_dma_buffer[idx] = AudioDac_ApplyVolume12Bit(samples[idx] & 0x0FFFU);
-  }
-
-  return AudioDac_StartBuffer(sample_count, sample_rate_hz);
-}
-
-void AudioDac_Stop(void)
-{
-  /* 播放结束后同时关闭 TIM 和 DMA，并把输出恢复到中点。 */
-  (void)HAL_TIM_Base_Stop(&htim6_audio);
-  (void)HAL_DAC_Stop_DMA(&APP_AUDIO_DAC_HANDLE, APP_AUDIO_DAC_CHANNEL);
-  HAL_DAC_SetValue(&APP_AUDIO_DAC_HANDLE, APP_AUDIO_DAC_CHANNEL, DAC_ALIGN_12B_R, 2048U);
-  audio_is_playing = 0U;
-}
-
-uint8_t AudioDac_IsBusy(void)
-{
-  return audio_is_playing;
-}
-
-void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac)
-{
-  if (hdac->Instance == DAC)
-  {
-    /* 单次 DMA 播放完成后由回调统一收尾。 */
-    AudioDac_Stop();
-  }
-}
-
-void HAL_DAC_ErrorCallbackCh1(DAC_HandleTypeDef *hdac)
-{
-  if (hdac->Instance == DAC)
-  {
-    AudioDac_Stop();
-  }
+    play_tone(1200, 150, DAC_VOLUME);
 }

@@ -2,330 +2,550 @@
 /**
   ******************************************************************************
   * File Name          : freertos.c
-  * Description        : Code for freertos applications
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2026 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
+  * Description        : 考勤机 FreeRTOS 任务管理（Display/Check分离，音频独立）
   ******************************************************************************
   */
 /* USER CODE END Header */
 
-/* Includes ------------------------------------------------------------------*/
 #include "FreeRTOS.h"
+#include "cmsis_os2.h"
 #include "task.h"
 #include "main.h"
 #include "cmsis_os.h"
 
-/* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
+/* 自有驱动头文件 */
 #include "Com_debug.h"
 #include "Com_protocol.h"
+#include "key_input.h"
 #include "oled_ssd1306.h"
-#include "runtime_manager.h"
-#include "usart.h"
+#include "rtc.h"
 #include "string.h"
+#include "spi.h"
+#include "audio_dac_app.h"
+#include "rc522_app.h"
+#include "stdio.h"
+#include "zw101_app.h"
+/* ===================== 全局变量 ===================== */
 
-/* USER CODE END Includes */
+static  AttendanceDisplayModelTypeDef g_test_display;
+static uint8_t g_display_timeout = 0;
+void ZW101TestTask(void *argument);
+/* -------------------------- FreeRTOS 任务句柄定义 -------------------------- */
 
-/* Private typedef -----------------------------------------------------------*/
-/* USER CODE BEGIN PTD */
-
-/* USER CODE END PTD */
-
-/* Private define ------------------------------------------------------------*/
-/* USER CODE BEGIN PD */
-
-/* USER CODE END PD */
-
-/* Private macro -------------------------------------------------------------*/
-/* USER CODE BEGIN PM */
-
-/* USER CODE END PM */
-
-/* Private variables ---------------------------------------------------------*/
-/* USER CODE BEGIN Variables */
-
-/* USER CODE END Variables */
-/* Definitions for Mqtt_Report */
 osThreadId_t Mqtt_ReportHandle;
-const osThreadAttr_t Mqtt_Report_attributes = {
+const osThreadAttr_t Mqtt_Report_attributes =
+{
   .name = "Mqtt_Report",
   .stack_size = 512 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
+  .priority = osPriorityNormal,
 };
-/* Definitions for Debug */
+
 osThreadId_t DebugHandle;
-const osThreadAttr_t Debug_attributes = {
+const osThreadAttr_t Debug_attributes =
+{
   .name = "Debug",
   .stack_size = 256 * 4,
-  .priority = (osPriority_t) osPriorityLow1,
+  .priority = osPriorityLow1,
 };
-/* Definitions for UART */
+
 osThreadId_t UARTHandle;
-const osThreadAttr_t UART_attributes = {
+const osThreadAttr_t UART_attributes =
+{
   .name = "UART",
   .stack_size = 1024 * 4,
-  .priority = (osPriority_t) osPriorityHigh,
+  .priority = osPriorityHigh,
 };
-/* Definitions for Display */
+
 osThreadId_t DisplayHandle;
-const osThreadAttr_t Display_attributes = {
+const osThreadAttr_t Display_attributes =
+{
   .name = "Display",
   .stack_size = 512 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+  .priority = osPriorityLow,
 };
-/* Definitions for Check */
+
 osThreadId_t CheckHandle;
-const osThreadAttr_t Check_attributes = {
+const osThreadAttr_t Check_attributes =
+{
   .name = "Check",
   .stack_size = 1024 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
+  .priority = osPriorityNormal,
 };
-/* Definitions for TimeSync */
-osThreadId_t TimeSyncHandle;
-const osThreadAttr_t TimeSync_attributes = {
-  .name = "TimeSync",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
+
+osThreadId_t AudioPlayHandle;
+const osThreadAttr_t AudioPlay_attributes =
+{
+  .name = "AudioPlay",
+  .stack_size = 256 * 4,
+  .priority = osPriorityLow,
 };
-/* Definitions for queue_checkin_data */
-osMessageQueueId_t queue_checkin_dataHandle;
-const osMessageQueueAttr_t queue_checkin_data_attributes = {
-  .name = "queue_checkin_data"
-};
-/* Definitions for sem_serial_frame */
-osSemaphoreId_t sem_serial_frameHandle;
-const osSemaphoreAttr_t sem_serial_frame_attributes = {
-  .name = "sem_serial_frame"
-};
-/* Definitions for mutex_spi */
-osSemaphoreId_t mutex_spiHandle;
-const osSemaphoreAttr_t mutex_spi_attributes = {
-  .name = "mutex_spi"
-};
-/* Definitions for mutex_i2c */
+
+
+/* -------------------------- 队列 / 信号量 -------------------------- */
+
 osSemaphoreId_t mutex_i2cHandle;
-const osSemaphoreAttr_t mutex_i2c_attributes = {
-  .name = "mutex_i2c"
+const osSemaphoreAttr_t mutex_i2c_attributes =
+{
+  "mutex_i2c"
 };
 
-/* Private function prototypes -----------------------------------------------*/
-/* USER CODE BEGIN FunctionPrototypes */
+osMessageQueueId_t audioQueueHandle;
+const osMessageQueueAttr_t audioQueue_attributes =
+{
+  .name = "audioQueue"
+};
+osThreadId_t ZW101TestHandle;
+const osThreadAttr_t ZW101Test_attributes =
+{
+  .name = "ZW101Test",
+  .stack_size = 512 * 4,
+  .priority = osPriorityLow,
+};
+/* -------------------------- 内部函数声明 -------------------------- */
 
-/* USER CODE END FunctionPrototypes */
+static void TestDisplay_SetBootScreen(void);
+static void TestDisplay_SetKeyEvent(KeyEventTypeDef key_event);
+static void TestDisplay_SetRtc(
+        const RTC_TimeTypeDef *time,
+        const RTC_DateTypeDef *date);
 
-void Mqtt_ReportTask(void *argument);
-void DebugTask(void *argument);
-void UARTTask(void *argument);
+/* 外部任务声明 */
+
 void DisplayTask(void *argument);
 void CheckTask(void *argument);
-void TimeSyncTask(void *argument);
+void AudioPlayTask(void *argument);
+void UARTTask(void *argument);
+void DebugTask(void *argument);
+void Mqtt_ReportTask(void *argument);
 
-void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
-/**
-  * @brief  FreeRTOS initialization
-  * @param  None
-  * @retval None
-  */
-void MX_FREERTOS_Init(void) {
-  /* USER CODE BEGIN Init */
-  RuntimeManager_Init();
+/* ==================== FreeRTOS 初始化 ==================== */
 
-  /* USER CODE END Init */
+void MX_FREERTOS_Init(void)
+{
+  COM_DEBUG(">>> 系统启动中...");
 
-  /* USER CODE BEGIN RTOS_MUTEX */
-  /* add mutexes, ... */
-  /* USER CODE END RTOS_MUTEX */
+  TestDisplay_SetBootScreen();
 
-  /* Create the semaphores(s) */
-  /* creation of sem_serial_frame */
-  sem_serial_frameHandle = osSemaphoreNew(1, 0, &sem_serial_frame_attributes);
+  DAC_Sound_Init();
 
-  /* creation of mutex_spi */
-  mutex_spiHandle = osSemaphoreNew(1, 1, &mutex_spi_attributes);
+ZW101TestHandle =
+osThreadNew(
+    ZW101TestTask,
+    NULL,
+    &ZW101Test_attributes);
 
-  /* creation of mutex_i2c */
-  mutex_i2cHandle = osSemaphoreNew(1, 1, &mutex_i2c_attributes);
+  mutex_i2cHandle =
+  osSemaphoreNew(
+      1,
+      1,
+      &mutex_i2c_attributes);
 
-  /* USER CODE BEGIN RTOS_SEMAPHORES */
-  /* add semaphores, ... */
-  /* USER CODE END RTOS_SEMAPHORES */
+  audioQueueHandle =
+  osMessageQueueNew(
+      4,
+      sizeof(uint8_t),
+      &audioQueue_attributes);
 
-  /* USER CODE BEGIN RTOS_TIMERS */
-  /* start timers, add new ones, ... */
-  /* USER CODE END RTOS_TIMERS */
+  DisplayHandle =
+  osThreadNew(
+      DisplayTask,
+      NULL,
+      &Display_attributes);
 
-  /* Create the queue(s) */
-  /* creation of queue_checkin_data */
-  queue_checkin_dataHandle = osMessageQueueNew (5, 28, &queue_checkin_data_attributes);
+  //CheckHandle =
+  // osThreadNew(
+  //     CheckTask,
+  //     NULL,
+  //     &Check_attributes);
 
-  /* USER CODE BEGIN RTOS_QUEUES */
-  /* add queues, ... */
-  // 新增：创建帧解析队列（长度10，每个元素为FRAME_MAX_LEN+1字节，第一字节为长度）
-  frame_queue = xQueueCreate(10, FRAME_MAX_LEN + 1);
-  /* USER CODE END RTOS_QUEUES */
+  AudioPlayHandle =
+  osThreadNew(
+      AudioPlayTask,
+      NULL,
+      &AudioPlay_attributes);
 
-  /* Create the thread(s) */
-  /* creation of Mqtt_Report */
-  Mqtt_ReportHandle = osThreadNew(Mqtt_ReportTask, NULL, &Mqtt_Report_attributes);
+  UARTHandle =
+  osThreadNew(
+      UARTTask,
+      NULL,
+      &UART_attributes);
 
-  /* creation of Debug */
-  DebugHandle = osThreadNew(DebugTask, NULL, &Debug_attributes);
+  DebugHandle =
+  osThreadNew(
+      DebugTask,
+      NULL,
+      &Debug_attributes);
 
-  /* creation of UART */
-  UARTHandle = osThreadNew(UARTTask, NULL, &UART_attributes);
+  Mqtt_ReportHandle =
+  osThreadNew(
+      Mqtt_ReportTask,
+      NULL,
+      &Mqtt_Report_attributes);
 
-  /* creation of Display */
-  DisplayHandle = osThreadNew(DisplayTask, NULL, &Display_attributes);
 
-  /* creation of Check */
-  CheckHandle = osThreadNew(CheckTask, NULL, &Check_attributes);
+  uint8_t cmd = 4;
+  osMessageQueuePut(audioQueueHandle,&cmd,0,0);
 
-  /* creation of TimeSync */
-  TimeSyncHandle = osThreadNew(TimeSyncTask, NULL, &TimeSync_attributes);
+  COM_DEBUG(">>> 系统启动完成");
+}
 
-  /* USER CODE BEGIN RTOS_THREADS */
-  /* add threads, ... */
-  /* USER CODE END RTOS_THREADS */
 
-  /* USER CODE BEGIN RTOS_EVENTS */
-  /* add events, ... */
-  /* USER CODE END RTOS_EVENTS */
+/* ==================== UI函数 ==================== */
+
+static void TestDisplay_SetBootScreen(void)
+{
+  memset((void*)&g_test_display,0,sizeof(g_test_display));
+
+  g_test_display.page = OLED_PAGE_IDLE;
+
+  snprintf(g_test_display.line1,32,"ATTENDANCE");
+  snprintf(g_test_display.line2,32,"SYSTEM START");
+  snprintf(g_test_display.line3,32,"STM32F103");
+  snprintf(g_test_display.line4,32,"BOOT OK");
+}
+
+
+static void TestDisplay_SetKeyEvent(
+        KeyEventTypeDef key_event)
+{
+
+  uint8_t audio_cmd = 0;
+
+
+
+  if(audio_cmd != 0)
+  {
+    osMessageQueuePut(
+      audioQueueHandle,
+      &audio_cmd,
+      0,
+      0);
+  }
+}
+
+
+static void TestDisplay_SetRtc(
+        const RTC_TimeTypeDef *time,
+        const RTC_DateTypeDef *date)
+{
+  snprintf(g_test_display.line1,32,"ATTENDANCE");
+  snprintf(g_test_display.line2,32,"TIME");
+
+  snprintf(g_test_display.line3,
+           32,
+           "%02d:%02d:%02d",
+           time->Hours,
+           time->Minutes,
+           time->Seconds);
+
+  snprintf(g_test_display.line4,32,"READY");
+}
+
+
+/* ==================== Display Task ==================== */
+
+void DisplayTask(void *argument)
+{
+  RTC_TimeTypeDef rtc_time;
+  RTC_DateTypeDef rtc_date;
+
+  COM_DEBUG("Display Task Start");
+
+  for(;;)
+  {
+    if(g_test_display.page == OLED_PAGE_IDLE)
+    {
+      HAL_RTC_GetTime(
+            &hrtc,
+            &rtc_time,
+            RTC_FORMAT_BIN);
+
+      HAL_RTC_GetDate(
+            &hrtc,
+            &rtc_date,
+            RTC_FORMAT_BIN);
+
+      TestDisplay_SetRtc(
+            &rtc_time,
+            &rtc_date);
+    }
+
+    if(g_display_timeout > 0)
+    {
+      g_display_timeout--;
+
+      if(g_display_timeout == 0)
+      {
+        g_test_display.page =
+            OLED_PAGE_IDLE;
+      }
+    }
+
+    if(osSemaphoreAcquire(
+          mutex_i2cHandle,
+          pdMS_TO_TICKS(50))
+          == osOK)
+    {
+      Oled_RenderDisplayModel(
+            &g_test_display);
+
+      osSemaphoreRelease(
+            mutex_i2cHandle);
+    }
+
+    osDelay(100);
+  }
 
 }
 
-/* USER CODE BEGIN Header_Mqtt_ReportTask */
-/**
-  * @brief  Function implementing the Mqtt_Report thread.
-  * @param  argument: Not used
-  * @retval None
-  */
-/* USER CODE END Header_Mqtt_ReportTask */
+
+/* ==================== Check Task ==================== */
+void CheckTask(void *argument)
+{
+  KeyEventTypeDef key_event;
+  static uint8_t key_lock = 0;
+
+  RC522_CardInfoTypeDef card;
+  char uid_str[32];
+  ZW101_SearchResultTypeDef finger_res;
+  ZW101_StatusTypeDef st;
+
+  COM_DEBUG("Check Task Start");
+
+  RC522_Init();
+  ZW101_Init();
+ // ZW101_VerifyPassword(0x00000000); // 必须
+
+  for(;;)
+  {
+    key_event = KeyInput_Scan();
+
+    if(key_event != KEY_EVENT_NONE && key_lock == 0)
+    {
+      key_lock = 1;
+
+      // ==================== 长按OK：注册指纹 ====================
+      if(key_event == KEY_EVENT_OK_LONG)
+      {
+        COM_DEBUG("开始注册指纹 ID1");
+
+        snprintf(g_test_display.line1,32,"PUT FINGER 1");
+        snprintf(g_test_display.line2,32,"PRESS & HOLD");
+        g_display_timeout = 50;
+
+        // 第一次采集
+        st = ZW101_CollectImage();
+        if(st != ZW101_OK) goto enroll_fail;
+
+        st = ZW101_GenerateChar(1);
+        if(st != ZW101_OK) goto enroll_fail;
+
+        // 提示抬手
+        snprintf(g_test_display.line1,32,"LIFT FINGER!");
+        osDelay(1000); // 必须等抬手
+
+        // 第二次采集
+        snprintf(g_test_display.line1,32,"PUT FINGER 2");
+        osDelay(500);
+
+        st = ZW101_CollectImage();
+        if(st != ZW101_OK) goto enroll_fail;
+
+        st = ZW101_GenerateChar(2);
+        if(st != ZW101_OK) goto enroll_fail;
+
+        // 生成模板
+        st = ZW101_CreateModel();
+        if(st != ZW101_OK) goto enroll_fail;
+
+        // 保存
+        st = ZW101_StoreModel(1, 1);
+        if(st == ZW101_OK)
+        {
+          COM_DEBUG("✅ 注册成功");
+          snprintf(g_test_display.line1,32,"ENROLL OK");
+          snprintf(g_test_display.line2,32,"ID:1");
+          uint8_t cmd = 2;
+          osMessageQueuePut(audioQueueHandle,&cmd,0,0);
+          goto enroll_end;
+        }
+
+      enroll_fail:
+        COM_DEBUG("❌ 注册失败 code:%d", st);
+        snprintf(g_test_display.line1,32,"ENROLL ERR");
+        snprintf(g_test_display.line2,32,"CODE:%d", st);
+        uint8_t cmd = 3;
+        osMessageQueuePut(audioQueueHandle,&cmd,0,0);
+
+      enroll_end:
+        g_display_timeout = 50;
+      }
+
+      // ==================== 短按OK：识别指纹 ====================
+      if(key_event == KEY_EVENT_OK_SHORT)
+      {
+        st = ZW101_Identify(&finger_res);
+
+        if(st == ZW101_OK)
+        {
+          COM_DEBUG("✅ 指纹匹配 ID:%d", finger_res.page_id);
+          snprintf(g_test_display.line1,32,"FINGER OK");
+          snprintf(g_test_display.line2,32,"ID:%d", finger_res.page_id);
+          uint8_t cmd = 2;
+          osMessageQueuePut(audioQueueHandle,&cmd,0,0);
+        }
+        else
+        {
+          COM_DEBUG("❌ 识别失败 code:%d", st);
+          snprintf(g_test_display.line1,32,"FINGER ERR");
+          snprintf(g_test_display.line2,32,"CODE:%d", st);
+          uint8_t cmd = 3;
+          osMessageQueuePut(audioQueueHandle,&cmd,0,0);
+        }
+        g_display_timeout = 50;
+      }
+    }
+
+    if(key_event == KEY_EVENT_NONE)
+    {
+      key_lock = 0;
+    }
+
+    // 刷卡
+    if(RC522_ReadCard(&card) == RC522_OK)
+    {
+      sprintf(uid_str,"%02X %02X %02X %02X", card.uid[0],card.uid[1],card.uid[2],card.uid[3]);
+      snprintf(g_test_display.line1,32,"CARD OK");
+      snprintf(g_test_display.line2,32,uid_str);
+      g_display_timeout = 30;
+      uint8_t cmd = 2;
+      osMessageQueuePut(audioQueueHandle,&cmd,0,0);
+      osDelay(500);
+    }
+
+    osDelay(50);
+  }
+}
+
+
+
+/* ==================== Audio Task ==================== */
+
+void AudioPlayTask(void *argument)
+{
+  uint8_t cmd;
+  static uint8_t playing = 0;
+
+  for(;;)
+  {
+    if(osMessageQueueGet(audioQueueHandle,&cmd,NULL,portMAX_DELAY)==osOK)
+    {
+      if(playing) continue;
+
+      playing = 1;
+
+      switch(cmd)
+      {
+        case 1: DAC_Sound_Beep(); break;
+        case 2: DAC_Sound_Success(); break;
+        case 3: DAC_Sound_Error(); break;
+        case 4: DAC_Sound_Welcome(); break;
+      }
+
+      playing = 0;
+    }
+  }
+}
+
+
+/* ==================== 其他任务 ==================== */
+void ZW101TestTask(void *argument)
+{
+  ZW101_StatusTypeDef st;
+  ZW101_SearchResultTypeDef res;
+
+  COM_DEBUG("ZW101 TEST START");
+
+
+  // 先验证通信
+
+
+  for(;;)
+  {
+
+  st = ZW101_VerifyPassword(0);
+  COM_DEBUG("INIT verify = %d", st);
+
+  if(st != ZW101_OK)
+  {
+    COM_DEBUG("❌ ZW101 INIT FAIL");
+  }
+  else
+  {
+    COM_DEBUG("✅ ZW101 INIT OK");
+  }
+    // ===== 测试1：采集指纹图像 =====
+    st = ZW101_CollectImage();
+    COM_DEBUG("CollectImage = %d", st);
+
+    if(st == ZW101_NO_FINGER)
+    {
+      COM_DEBUG("👉 no finger");
+    }
+    else if(st == ZW101_OK)
+    {
+      // ===== 测试2：特征提取 =====
+      st = ZW101_GenerateChar(1);
+      COM_DEBUG("GenerateChar = %d", st);
+
+      if(st == ZW101_OK)
+      {
+        // ===== 测试3：搜索 =====
+        st = ZW101_Search(1, 0, 300, &res);
+        COM_DEBUG("Search = %d, ID=%d score=%d",
+                  st, res.page_id, res.match_score);
+      }
+    }
+
+    osDelay(1500);
+   }
+}
+
+void DebugTask(void *argument)
+{
+  for(;;)
+  {
+
+
+ // ZW101_Init();
+  // ZW101_StatusTypeDef t;
+
+  // t = ZW101_VerifyPassword(0);
+
+  // COM_DEBUG("verify = %d", t);
+
+  // // st = ZW101_CollectImage();
+  // // COM_DEBUG("img = %d", st);
+
+  // // st = ZW101_GenerateChar(1);
+  // // COM_DEBUG("char = %d", st);
+  osDelay(1);
+}
+}
+
 void Mqtt_ReportTask(void *argument)
 {
-  /* USER CODE BEGIN Mqtt_ReportTask */
-  /* Infinite loop */
   for(;;)
   {
     osDelay(1);
   }
-  /* USER CODE END Mqtt_ReportTask */
 }
 
-/* USER CODE BEGIN Header_DebugTask */
-/**
-* @brief Function implementing the Debug thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_DebugTask */
-void DebugTask(void *argument)
-{
-  /* USER CODE BEGIN DebugTask */
-  /* Infinite loop */
-  for(;;)
-  {
-    //COM_DEBUG("Debug Task is running");
-    osDelay(1000); // Delay for 1 second (1000 ms)
-  }
-  /* USER CODE END DebugTask */
-}
-
-/* USER CODE BEGIN Header_UARTTask */
-/**
-* @brief Function implementing the UART thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_UARTTask */
 void UARTTask(void *argument)
 {
-  /* USER CODE BEGIN UARTTask */
-  uint8_t queue_msg[FRAME_MAX_LEN + 1];
   for(;;)
   {
-    if (xQueueReceive(frame_queue, queue_msg, portMAX_DELAY) == pdTRUE)
-    {
-      uint8_t frame_len = queue_msg[0];
-      if (frame_len > 0 && frame_len <= FRAME_MAX_LEN)
-      {
-        Com_ProcessReceivedFrame(&queue_msg[1], frame_len);
-      }
-    }
+    osDelay(10);
   }
-  /* USER CODE END UARTTask */
 }
-
-/* USER CODE BEGIN Header_DisplayTask */
-/**
-* @brief Function implementing the Display thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_DisplayTask */
-void DisplayTask(void *argument)
-{
-  /* USER CODE BEGIN DisplayTask */
-  AttendanceDisplayModelTypeDef display;
-  /* Infinite loop */
-  for(;;)
-  {
-    RuntimeManager_DisplayTaskStep();
-    RuntimeManager_GetDisplaySnapshot(&display);
-    Oled_RenderDisplayModel(&display);
-    osDelay(200);
-  }
-  /* USER CODE END DisplayTask */
-}
-
-/* USER CODE BEGIN Header_CheckTask */
-/**
-* @brief Function implementing the Check thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_CheckTask */
-void CheckTask(void *argument)
-{
-  /* USER CODE BEGIN CheckTask */
-  /* Infinite loop */
-  for(;;)
-  {
-    RuntimeManager_CheckTaskStep();
-    osDelay(100);
-  }
-  /* USER CODE END CheckTask */
-}
-
-/* USER CODE BEGIN Header_TimeSyncTask */
-/**
-* @brief Function implementing the TimeSync thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_TimeSyncTask */
-void TimeSyncTask(void *argument)
-{
-  /* USER CODE BEGIN TimeSyncTask */
-  /* Infinite loop */
-  for(;;)
-  {
-    RuntimeManager_TimeSyncTaskStep();
-    osDelay(1000);
-  }
-  /* USER CODE END TimeSyncTask */
-}
-
-/* Private application code --------------------------------------------------*/
-/* USER CODE BEGIN Application */
-
-/* USER CODE END Application */
-

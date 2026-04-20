@@ -18,7 +18,7 @@ typedef enum
   RC522_AUTH_ERROR = 0x03U,
   RC522_CRC_ERROR = 0x04U,
 } RC522_StatusTypeDef;
-
+uint8_t RC522_ReadRegister(uint8_t reg);
 typedef struct
 {
   uint8_t uid[RC522_UID_MAX_LEN];

@@ -2,15 +2,19 @@
 
 #include "stdio.h"
 #include "string.h"
+#include "stm32f1xx_hal.h"
 
 /* storage_manager 负责把“设备参数 / 用户档案 / 打卡记录”
- * 映射到 W25Q32 的固定地址空间，并处理扇区更新细节。 */
+ * 映射到内部Flash的固定地址空间，并处理页更新细节。 */
 
 #define STORAGE_PARAM_SECTOR_ADDR          STORAGE_ADDR_SYS_PARAM_BASE
-#define STORAGE_PARAM_SECTOR_SIZE          W25Q32_SECTOR_SIZE
+#define STORAGE_PARAM_SECTOR_SIZE          1024U  // Flash页大小
 
 static StorageParamTypeDef g_storage_param;
-static uint8_t g_storage_sector_buffer[W25Q32_SECTOR_SIZE];
+static StorageUserTypeDef g_storage_users[STORAGE_MAX_USER_COUNT];
+static uint8_t g_storage_sector_buffer[1024U];
+static uint32_t g_storage_record_index = 0U;
+static uint8_t g_storage_flash_write_enabled = 0U;  /* 测试阶段默认关闭写Flash */
 
 static uint32_t StorageManager_UserAddr(uint32_t index)
 {
@@ -24,54 +28,71 @@ static uint32_t StorageManager_RecordAddr(uint32_t index)
 
 static uint8_t StorageManager_WriteBuffer(uint32_t address, const uint8_t *buffer, uint32_t length)
 {
-  uint16_t chunk;
-  uint32_t offset = 0U;
-  uint32_t page_offset;
+  HAL_StatusTypeDef status;
+  uint32_t flash_addr = address;
+  uint32_t data;
+  uint32_t i;
 
-  /* W25Q32 页编程不能跨页，这里按页拆分写入。 */
-  while (offset < length)
+  if (length % 4 != 0)
   {
-    page_offset = (address + offset) & (W25Q32_PAGE_SIZE - 1U);
-    chunk = (uint16_t)(W25Q32_PAGE_SIZE - page_offset);
-    if (chunk > (length - offset))
-    {
-      chunk = (uint16_t)(length - offset);
-    }
-
-    if (W25Q32_PageProgram(address + offset, &buffer[offset], chunk) != W25Q32_OK)
-    {
-      return 0U;
-    }
-    offset += chunk;
+    return 0U; // 必须4字节对齐
   }
 
+  HAL_FLASH_Unlock();
+
+  for (i = 0; i < length; i += 4)
+  {
+    data = *(uint32_t *)&buffer[i];
+    status = HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, flash_addr, data);
+    if (status != HAL_OK)
+    {
+      HAL_FLASH_Lock();
+      return 0U;
+    }
+    flash_addr += 4;
+  }
+
+  HAL_FLASH_Lock();
   return 1U;
 }
 
-static uint8_t StorageManager_UpdateSector(uint32_t sector_addr,
-                                           uint32_t offset_in_sector,
-                                           const uint8_t *data,
-                                           uint32_t length)
+static uint8_t StorageManager_UpdatePage(uint32_t page_addr, uint32_t offset_in_page, const uint8_t *data, uint32_t length)
 {
-  if ((offset_in_sector + length) > W25Q32_SECTOR_SIZE)
+  FLASH_EraseInitTypeDef erase_init;
+  uint32_t page_error;
+
+  if ((offset_in_page + length) > 1024U)
   {
     return 0U;
   }
 
-  /* 需要改动一个扇区中间的数据时，先整扇区读出、修改、擦除、再整扇区回写。 */
-  if (W25Q32_ReadData(sector_addr, g_storage_sector_buffer, W25Q32_SECTOR_SIZE) != W25Q32_OK)
+  // 读出整页
+  memcpy(g_storage_sector_buffer, (void *)page_addr, 1024U);
+
+  // 修改数据
+  memcpy(&g_storage_sector_buffer[offset_in_page], data, length);
+
+  // 擦除页
+  erase_init.TypeErase = FLASH_TYPEERASE_PAGES;
+  erase_init.PageAddress = page_addr;
+  erase_init.NbPages = 1;
+
+  HAL_FLASH_Unlock();
+  if (HAL_FLASHEx_Erase(&erase_init, &page_error) != HAL_OK)
   {
+    HAL_FLASH_Lock();
     return 0U;
   }
 
-  memcpy(&g_storage_sector_buffer[offset_in_sector], data, length);
-
-  if (W25Q32_SectorErase(sector_addr) != W25Q32_OK)
+  // 写回整页
+  if (StorageManager_WriteBuffer(page_addr, g_storage_sector_buffer, 1024U) == 0U)
   {
+    HAL_FLASH_Lock();
     return 0U;
   }
 
-  return StorageManager_WriteBuffer(sector_addr, g_storage_sector_buffer, W25Q32_SECTOR_SIZE);
+  HAL_FLASH_Lock();
+  return 1U;
 }
 
 static uint8_t StorageManager_LoadParamFromFlash(StorageParamTypeDef *param)
@@ -81,7 +102,8 @@ static uint8_t StorageManager_LoadParamFromFlash(StorageParamTypeDef *param)
     return 0U;
   }
 
-  return (W25Q32_ReadData(STORAGE_ADDR_SYS_PARAM_BASE, (uint8_t *)param, sizeof(StorageParamTypeDef)) == W25Q32_OK) ? 1U : 0U;
+  memcpy(param, (void *)STORAGE_ADDR_SYS_PARAM_BASE, sizeof(StorageParamTypeDef));
+  return 1U;
 }
 
 static void StorageManager_DefaultParam(StorageParamTypeDef *param)
@@ -103,7 +125,13 @@ static uint8_t StorageManager_ReadUserByIndex(uint32_t index, StorageUserTypeDef
     return 0U;
   }
 
-  return (W25Q32_ReadData(StorageManager_UserAddr(index), (uint8_t *)user, sizeof(StorageUserTypeDef)) == W25Q32_OK) ? 1U : 0U;
+  if (g_storage_users[index].valid != 1U)
+  {
+    return 0U;
+  }
+
+  *user = g_storage_users[index];
+  return 1U;
 }
 
 void StorageManager_Init(void)
@@ -111,10 +139,21 @@ void StorageManager_Init(void)
   if (StorageManager_LoadParamFromFlash(&g_storage_param) == 0U ||
       g_storage_param.magic != STORAGE_PARAM_MAGIC)
   {
-    /* 首次上电或参数损坏时自动恢复默认参数。 */
+    /* 首次上电或参数损坏时自动恢复默认参数。
+     * 目前不写入Flash，避免测试阶段擦坏内部Flash。 */
     StorageManager_DefaultParam(&g_storage_param);
-    (void)StorageManager_SaveParam(&g_storage_param);
   }
+
+  for (uint32_t i = 0U; i < STORAGE_MAX_USER_COUNT; i++)
+  {
+    g_storage_users[i].valid = 0U;
+  }
+  g_storage_record_index = g_storage_param.next_record_index;
+}
+
+void StorageManager_SetFlashWriteEnabled(uint8_t enabled)
+{
+  g_storage_flash_write_enabled = enabled ? 1U : 0U;
 }
 
 StorageParamTypeDef StorageManager_GetParam(void)
@@ -129,12 +168,15 @@ uint8_t StorageManager_SaveParam(const StorageParamTypeDef *param)
     return 0U;
   }
 
-  if (StorageManager_UpdateSector(STORAGE_PARAM_SECTOR_ADDR,
+  if (g_storage_flash_write_enabled)
+  {
+    if (StorageManager_UpdatePage(STORAGE_PARAM_SECTOR_ADDR,
                                   0U,
                                   (const uint8_t *)param,
                                   sizeof(StorageParamTypeDef)) == 0U)
-  {
-    return 0U;
+    {
+      return 0U;
+    }
   }
 
   g_storage_param = *param;
@@ -203,8 +245,8 @@ uint8_t StorageManager_SaveUser(const StorageUserTypeDef *user)
   StorageUserTypeDef slot_user;
   uint32_t idx;
   uint32_t addr;
-  uint32_t sector_addr;
-  uint32_t offset_in_sector;
+  uint32_t page_addr;
+  uint32_t offset_in_page;
 
   if (user == NULL || user->user_id == 0U)
   {
@@ -220,13 +262,20 @@ uint8_t StorageManager_SaveUser(const StorageUserTypeDef *user)
 
     if (slot_user.valid == 1U && slot_user.user_id == user->user_id)
     {
-      addr = StorageManager_UserAddr(idx);
-      sector_addr = addr & ~(W25Q32_SECTOR_SIZE - 1UL);
-      offset_in_sector = addr - sector_addr;
-      return StorageManager_UpdateSector(sector_addr,
-                                         offset_in_sector,
+      g_storage_users[idx] = *user;
+
+      if (g_storage_flash_write_enabled)
+      {
+        addr = StorageManager_UserAddr(idx);
+        page_addr = addr & ~(1024U - 1UL);
+        offset_in_page = addr - page_addr;
+        return StorageManager_UpdatePage(page_addr,
+                                         offset_in_page,
                                          (const uint8_t *)user,
                                          sizeof(StorageUserTypeDef));
+      }
+
+      return 1U;
     }
   }
 
@@ -238,8 +287,8 @@ uint8_t StorageManager_CreateUser(const uint8_t uid[4], uint16_t finger_id, Stor
   StorageUserTypeDef user;
   uint32_t idx;
   uint32_t addr;
-  uint32_t sector_addr;
-  uint32_t offset_in_sector;
+  uint32_t page_addr;
+  uint32_t offset_in_page;
 
   for (idx = 0U; idx < STORAGE_MAX_USER_COUNT; idx++)
   {
@@ -259,16 +308,20 @@ uint8_t StorageManager_CreateUser(const uint8_t uid[4], uint16_t finger_id, Stor
       snprintf(user.employee_no, sizeof(user.employee_no), "%04lu", (unsigned long)user.user_id);
       snprintf(user.name, sizeof(user.name), "USER%04lu", (unsigned long)user.user_id);
 
-      addr = StorageManager_UserAddr(idx);
-      sector_addr = addr & ~(W25Q32_SECTOR_SIZE - 1UL);
-      offset_in_sector = addr - sector_addr;
+      g_storage_users[idx] = user;
 
-      if (StorageManager_UpdateSector(sector_addr,
-                                      offset_in_sector,
+      if (g_storage_flash_write_enabled)
+      {
+        addr = StorageManager_UserAddr(idx);
+        page_addr = addr & ~(1024U - 1UL);
+        offset_in_page = addr - page_addr;
+        if (StorageManager_UpdatePage(page_addr,
+                                      offset_in_page,
                                       (const uint8_t *)&user,
                                       sizeof(StorageUserTypeDef)) == 0U)
-      {
-        return 0U;
+        {
+          return 0U;
+        }
       }
 
       g_storage_param.next_user_id++;
@@ -291,7 +344,7 @@ uint8_t StorageManager_AppendRecord(const StorageRecordTypeDef *record, uint32_t
   StorageRecordTypeDef record_local;
   uint32_t record_index;
   uint32_t addr;
-  uint32_t sector_addr;
+  uint32_t page_addr;
 
   if (record == NULL)
   {
@@ -302,20 +355,33 @@ uint8_t StorageManager_AppendRecord(const StorageRecordTypeDef *record, uint32_t
   record_index = g_storage_param.next_record_index % STORAGE_MAX_RECORD_COUNT;
   record_local.record_id = g_storage_param.next_record_index + 1U;
   addr = StorageManager_RecordAddr(record_index);
-  sector_addr = addr & ~(W25Q32_SECTOR_SIZE - 1UL);
+  page_addr = addr & ~(1024U - 1UL);
 
-  /* 记录区采用顺序追加；写到新扇区开头前先擦除该扇区。 */
-  if ((addr % W25Q32_SECTOR_SIZE) == 0U)
+  if (g_storage_flash_write_enabled)
   {
-    if (W25Q32_SectorErase(sector_addr) != W25Q32_OK)
+    /* 记录区采用顺序追加；写到新页开头前先擦除该页。 */
+    if ((addr % 1024U) == 0U)
+    {
+      FLASH_EraseInitTypeDef erase_init;
+      uint32_t page_error;
+
+      erase_init.TypeErase = FLASH_TYPEERASE_PAGES;
+      erase_init.PageAddress = page_addr;
+      erase_init.NbPages = 1;
+
+      HAL_FLASH_Unlock();
+      if (HAL_FLASHEx_Erase(&erase_init, &page_error) != HAL_OK)
+      {
+        HAL_FLASH_Lock();
+        return 0U;
+      }
+      HAL_FLASH_Lock();
+    }
+
+    if (StorageManager_WriteBuffer(addr, (const uint8_t *)&record_local, sizeof(StorageRecordTypeDef)) == 0U)
     {
       return 0U;
     }
-  }
-
-  if (StorageManager_WriteBuffer(addr, (const uint8_t *)&record_local, sizeof(StorageRecordTypeDef)) == 0U)
-  {
-    return 0U;
   }
 
   g_storage_param.next_record_index++;

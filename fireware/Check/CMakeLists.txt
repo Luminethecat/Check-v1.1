@@ -12,9 +12,10 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)
 
-#Commen 配置
-file(GLOB COMMEN "commen/*.c")
-file(GLOB APPLICATION "application/*.c")
+# 【修复1】file(GLOB) 语法错误：CONFIGURE_DEPENDS 是选项，不能当变量名
+# 正确写法：file(GLOB 变量名 CONFIGURE_DEPENDS 路径)
+file(GLOB COMMEN CONFIGURE_DEPENDS "commen/*.c")
+file(GLOB APPLICATION CONFIGURE_DEPENDS "application/*.c")
 
 # Define the build type
 if(NOT CMAKE_BUILD_TYPE)
@@ -24,7 +25,7 @@ endif()
 # Set the project name
 set(CMAKE_PROJECT_NAME Check1.0)
 
-# Enable compile command to ease indexing with e.g. clangd
+# Enable compile command to ease indexing with ccls/clangd
 set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
 
 # Core project settings

@@ -7,7 +7,6 @@ extern "C" {
 
 #include "attendance_app.h"
 #include "storage_layout.h"
-#include "w25q32_app.h"
 
 #define STORAGE_PARAM_MAGIC                0x544B4348UL
 #define STORAGE_USER_NAME_LEN              16U
@@ -61,6 +60,7 @@ typedef struct
 void StorageManager_Init(void);
 StorageParamTypeDef StorageManager_GetParam(void);
 uint8_t StorageManager_SaveParam(const StorageParamTypeDef *param);
+void StorageManager_SetFlashWriteEnabled(uint8_t enabled);
 
 uint8_t StorageManager_FindUserByCard(const uint8_t uid[4], StorageUserTypeDef *user_out);
 uint8_t StorageManager_FindUserByFinger(uint16_t finger_id, StorageUserTypeDef *user_out);

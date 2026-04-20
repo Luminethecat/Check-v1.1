@@ -71,54 +71,115 @@ static ZW101_StatusTypeDef ZW101_SendPacket(uint8_t packet_type,
   return ZW101_OK;
 }
 
-static ZW101_StatusTypeDef ZW101_ReceiveAck(uint8_t *payload, uint16_t *payload_len, uint32_t timeout_ms)
+static ZW101_StatusTypeDef ZW101_ReceiveAck(uint8_t *payload,
+                                           uint16_t *payload_len,
+                                           uint32_t timeout_ms)
 {
   uint8_t header[9];
+  uint8_t byte;
+  uint16_t i;
   uint16_t frame_payload_len;
   uint16_t checksum;
   uint8_t checksum_bytes[2];
-  uint16_t idx;
 
   if (payload == NULL || payload_len == NULL)
   {
     return ZW101_ERROR;
   }
 
-  if (HAL_UART_Receive(zw101_uart, header, sizeof(header), timeout_ms) != HAL_OK)
+  /* ============================= */
+  /* 1. 找帧头 EF 01 */
+  /* ============================= */
+  while (1)
   {
-    return ZW101_TIMEOUT;
+    if (HAL_UART_Receive(zw101_uart, &byte, 1, timeout_ms) != HAL_OK)
+    {
+      return ZW101_TIMEOUT;
+    }
+
+    if (byte == ZW101_START_CODE_H)
+    {
+      header[0] = byte;
+
+      if (HAL_UART_Receive(zw101_uart, &byte, 1, timeout_ms) != HAL_OK)
+      {
+        return ZW101_TIMEOUT;
+      }
+
+      if (byte == ZW101_START_CODE_L)
+      {
+        header[1] = byte;
+        break;
+      }
+    }
   }
 
-  if (header[0] != ZW101_START_CODE_H || header[1] != ZW101_START_CODE_L || header[6] != ZW101_PACKET_ACK)
+  /* ============================= */
+  /* 2. 收剩余7字节 header */
+  /* ============================= */
+  for (i = 2; i < 9; i++)
+  {
+    if (HAL_UART_Receive(zw101_uart, &header[i], 1, timeout_ms) != HAL_OK)
+    {
+      return ZW101_TIMEOUT;
+    }
+  }
+
+  /* ============================= */
+  /* 3. 校验 packet type */
+  /* ============================= */
+  if (header[6] != ZW101_PACKET_ACK)
   {
     return ZW101_PACKET_ERROR;
   }
 
-  frame_payload_len = (uint16_t)(((uint16_t)header[7] << 8U) | header[8]);
-  if (frame_payload_len < 2U || (frame_payload_len - 2U) > *payload_len)
+  /* ============================= */
+  /* 4. 计算 payload length */
+  /* ============================= */
+  frame_payload_len = (uint16_t)((header[7] << 8) | header[8]);
+
+  if (frame_payload_len < 2U)
   {
     return ZW101_PACKET_ERROR;
   }
 
-  *payload_len = (uint16_t)(frame_payload_len - 2U);
+  *payload_len = frame_payload_len - 2U;
 
-  if (HAL_UART_Receive(zw101_uart, payload, *payload_len, timeout_ms) != HAL_OK)
+  if (*payload_len > 16U)
+  {
+    return ZW101_PACKET_ERROR;
+  }
+
+  /* ============================= */
+  /* 5. 收 payload */
+  /* ============================= */
+  for (i = 0; i < *payload_len; i++)
+  {
+    if (HAL_UART_Receive(zw101_uart, &payload[i], 1, timeout_ms) != HAL_OK)
+    {
+      return ZW101_TIMEOUT;
+    }
+  }
+
+  /* ============================= */
+  /* 6. 收 checksum */
+  /* ============================= */
+  if (HAL_UART_Receive(zw101_uart, checksum_bytes, 2, timeout_ms) != HAL_OK)
   {
     return ZW101_TIMEOUT;
   }
 
-  if (HAL_UART_Receive(zw101_uart, checksum_bytes, 2U, timeout_ms) != HAL_OK)
+  /* ============================= */
+  /* 7. 校验 checksum */
+  /* ============================= */
+  checksum = ZW101_PACKET_ACK + header[7] + header[8];
+
+  for (i = 0; i < *payload_len; i++)
   {
-    return ZW101_TIMEOUT;
+    checksum += payload[i];
   }
 
-  checksum = (uint16_t)(ZW101_PACKET_ACK + header[7] + header[8]);
-  for (idx = 0U; idx < *payload_len; idx++)
-  {
-    checksum = (uint16_t)(checksum + payload[idx]);
-  }
-
-  if (checksum != (uint16_t)(((uint16_t)checksum_bytes[0] << 8U) | checksum_bytes[1]))
+  if (checksum != ((checksum_bytes[0] << 8) | checksum_bytes[1]))
   {
     return ZW101_PACKET_ERROR;
   }

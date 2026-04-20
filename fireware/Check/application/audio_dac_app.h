@@ -1,36 +1,12 @@
-#ifndef AUDIO_DAC_APP_H
-#define AUDIO_DAC_APP_H
+#ifndef __AUDIO_DAC_APP_H__
+#define __AUDIO_DAC_APP_H__
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <stdint.h>
 
-#include "stm32f1xx_hal.h"
+void DAC_Sound_Init(void);
+void DAC_Sound_Beep(void);
+void DAC_Sound_Success(void);
+void DAC_Sound_Error(void);
+void DAC_Sound_Welcome(void);
 
-#define AUDIO_DAC_MAX_SAMPLES            4096U
-
-typedef enum
-{
-  AUDIO_DAC_OK = 0x00U,
-  AUDIO_DAC_ERROR = 0x01U,
-  AUDIO_DAC_BUSY = 0x02U,
-} AudioDac_StatusTypeDef;
-
-/* DAC 音频播放接口：
- * 当前使用 TIM6 + DMA + DAC_CH1 输出单声道 PCM。 */
-void AudioDac_Init(void);
-void AudioDac_SetVolume(uint8_t percent);
-AudioDac_StatusTypeDef AudioDac_PlayU8Mono(const uint8_t *samples,
-                                           uint32_t sample_count,
-                                           uint32_t sample_rate_hz);
-AudioDac_StatusTypeDef AudioDac_PlayU12Mono(const uint16_t *samples,
-                                            uint32_t sample_count,
-                                            uint32_t sample_rate_hz);
-void AudioDac_Stop(void);
-uint8_t AudioDac_IsBusy(void);
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif
+#endif /* __AUDIO_DAC_APP_H__ */
