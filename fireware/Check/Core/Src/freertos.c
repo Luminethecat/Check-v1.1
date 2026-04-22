@@ -623,7 +623,7 @@ void SystemCheckTask(void *argument)
   }
 
   // 4. Check User Database
-  UserDB_Init();
+  UserDb_Init();
   COM_DEBUG("[OK] UserDB: Init OK, Users: %d", UserDB_GetUserCount());
 
   // Add test users
@@ -660,63 +660,63 @@ void SystemCheckTask(void *argument)
 /* ==================== RFID测试任务 ==================== */
 void RFIDTestTask(void *argument)
 {
-  RC522_CardInfoTypeDef card;
-  uint32_t user_id;
-  char card_uid_str[20];
+  // RC522_CardInfoTypeDef card;
+  // uint32_t user_id;
+  // char card_uid_str[20];
 
-  COM_DEBUG("RFID Test Task Start");
+  // COM_DEBUG("RFID Test Task Start");
 
-  // 等待系统自检完成
-  osDelay(3000);
+  // // 等待系统自检完成
+  // osDelay(3000);
 
-  RC522_Init();
+  // RC522_Init();
 
   for(;;)
   {
-    // 检测是否有卡片
-    if(RC522_IsCardPresent() == RC522_OK)
-    {
-      // 读取卡片
-      if(RC522_ReadCard(&card) == RC522_OK)
-      {
-        // 转换UID为字符串
-        sprintf(card_uid_str, "%02X%02X%02X%02X",
-                card.uid[0], card.uid[1], card.uid[2], card.uid[3]);
+    // // 检测是否有卡片
+    // if(RC522_IsCardPresent() == RC522_OK)
+    // {
+    //   // 读取卡片
+    //   if(RC522_ReadCard(&card) == RC522_OK)
+    //   {
+    //     // 转换UID为字符串
+    //     sprintf(card_uid_str, "%02X%02X%02X%02X",
+    //             card.uid[0], card.uid[1], card.uid[2], card.uid[3]);
 
-        COM_DEBUG("Card detected: %s", card_uid_str);
+    //     COM_DEBUG("Card detected: %s", card_uid_str);
 
-        // 通过RFID查找用户
-        user_id = UserDB_IdentifyByRFID(card.uid);
+    //     // 通过RFID查找用户
+    //     user_id = UserDB_IdentifyByRFID(card.uid);
 
-        if(user_id != 0)
-        {
-          UserTypeDef* user = UserDB_GetUser(user_id);
-          if(user != NULL)
-          {
-            COM_DEBUG("User found: %s (%s)", user->name, user->employee_no);
+    //     if(user_id != 0)
+    //     {
+    //       UserTypeDef* user = UserDB_GetUser(user_id);
+    //       if(user != NULL)
+    //       {
+    //         COM_DEBUG("User found: %s (%s)", user->name, user->employee_no);
 
-            // 显示识别结果
-            Oled_Clear();
-            Oled_DrawString(0, 0, "CARD OK");
-            Oled_DrawString(0, 2, user->name);
-            Oled_DrawString(0, 4, user->employee_no);
-            Oled_DrawString(0, 6, card_uid_str);
-          }
-        }
-        else
-        {
-          COM_DEBUG("Unknown card: %s", card_uid_str);
+    //         // 显示识别结果
+    //         Oled_Clear();
+    //         Oled_DrawString(0, 0, "CARD OK");
+    //         Oled_DrawString(0, 2, user->name);
+    //         Oled_DrawString(0, 4, user->employee_no);
+    //         Oled_DrawString(0, 6, card_uid_str);
+    //       }
+    //     }
+    //     else
+    //     {
+    //       COM_DEBUG("Unknown card: %s", card_uid_str);
 
-          // 显示未识别卡片
-          Oled_Clear();
-          Oled_DrawString(0, 0, "UNKNOWN CARD");
-          Oled_DrawString(0, 2, card_uid_str);
-          Oled_DrawString(0, 4, "Please register");
-        }
-      }
-    }
+    //       // 显示未识别卡片
+    //       Oled_Clear();
+    //       Oled_DrawString(0, 0, "UNKNOWN CARD");
+    //       Oled_DrawString(0, 2, card_uid_str);
+    //       Oled_DrawString(0, 4, "Please register");
+    //     }
+    //   }
+    // }
 
-    osDelay(500);  // 500ms检测一次
+    osDelay(10);  // 500ms检测一次
   }
 }
 

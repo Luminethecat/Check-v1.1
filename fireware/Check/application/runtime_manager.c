@@ -5,6 +5,7 @@
 #include "cmsis_os.h"
 #include "key_input.h"
 #include "storage_manager.h"
+#include "Com_protocol.h"
 #include "string.h"
 #include "audio_dac_app.h"   // 或者 "dac_sound.h"，根据你实际文件名
 /*
@@ -40,6 +41,7 @@ typedef enum
   RUNTIME_MODE_IDLE = 0,                // 正常待机打卡模式
   RUNTIME_MODE_ENROLL_WAIT_CARD,        // 录入模式：等待刷IC卡
   RUNTIME_MODE_ENROLL_WAIT_FINGER,      // 录入模式：等待按压指纹
+  RUNTIME_MODE_USER_LIST,               // 浏览已注册用户列表
 } RuntimeModeTypeDef;
 
 /**
@@ -60,11 +62,13 @@ typedef struct
   uint8_t last_rtc_valid;                      // 上一轮RTC时钟是否有效标记
   uint8_t pending_card_uid[4];                 // 录入模式临时缓存的卡号UID
   uint8_t pending_card_valid;                  // 临时卡号是否有效标志位
+  uint32_t user_list_index;                    // 用户列表当前索引
+  uint32_t user_list_count;                    // 用户列表计数
 } RuntimeContextTypeDef;
 
 // 本文件静态全局运行时实例
 static RuntimeContextTypeDef g_runtime;
-
+static void RuntimeManager_HandleUserList(KeyEventTypeDef key_event);
 /**
  * @brief 根据考勤结果播放对应提示音
  * @param result 考勤结果枚举
@@ -398,11 +402,41 @@ static void RuntimeManager_HandleEnrollMode(KeyEventTypeDef key_event)
     param = StorageManager_GetParam();
     next_finger_id = (uint16_t)param.next_user_id;
 
-    // 卡号有效 + 指纹录入成功 + 用户创建成功
-    if (g_runtime.pending_card_valid != 0U &&
-        App_Zw101_EnrollUser(ZW101_DEFAULT_PASSWORD, next_finger_id) == ZW101_OK &&
-        StorageManager_CreateUser(g_runtime.pending_card_uid, next_finger_id, &user) != 0U)
+    // 卡号有效：等待检测到指纹模块上有手指再开始录入
+    if (g_runtime.pending_card_valid != 0U)
     {
+      /* 仅在指纹模块 IRQ 电平有效（检测到手指）时才触发录入流程，避免刚刷完卡立即尝试采集导致 NO_FINGER */
+      uint8_t irq_active = ZW101_IrqIsActiveLevel();
+      (void)ZW101_IrqConsumePending();
+
+      if (irq_active == 0U)
+      {
+        return; /* 继续等待手指或长按退出 */
+      }
+
+      /* 稳定性确认：等待短延时并再次确认 IRQ 保持有效，减少误触发 */
+      HAL_Delay(80U);
+      if (ZW101_IrqIsActiveLevel() == 0U)
+      {
+        return;
+      }
+
+      ZW101_StatusTypeDef st = App_Zw101_EnrollUser(ZW101_DEFAULT_PASSWORD, next_finger_id);
+      if (st != ZW101_OK)
+      {
+        /* enroll failed, handled below with UI */
+      }
+      else
+      {
+        if (StorageManager_CreateUser(g_runtime.pending_card_uid, next_finger_id, &user) == 0U)
+        {
+          COM_DEBUG("StorageManager_CreateUser failed for finger_id=%u", next_finger_id);
+          st = ZW101_ERROR; // use st to indicate failure for common handling
+        }
+      }
+
+      if (st == ZW101_OK)
+      {
       AttendanceEventTypeDef event;
       AttendanceUserTypeDef user_view;
       AttendanceDisplayModelTypeDef display;
@@ -433,14 +467,42 @@ static void RuntimeManager_HandleEnrollMode(KeyEventTypeDef key_event)
       RuntimeManager_SetDisplay(&display);
       // 播放录入成功语音
       DAC_Sound_Success();   // 录入成功用成功音
+      // 上报新增用户到 ESP/WiFi 模块，方便小程序同步人员信息
+      {
+        char payload[80];
+        int len = snprintf(payload, sizeof(payload), "%lu|%s|%s|%02X%02X%02X%02X|%u",
+                           (unsigned long)user.user_id,
+                           user.employee_no,
+                           user.name,
+                           user.rc522_uid[0], user.rc522_uid[1], user.rc522_uid[2], user.rc522_uid[3],
+                           (unsigned int)user.finger_id);
+        if (len > 0 && len < (int)sizeof(payload)) {
+          SendFrameToESP(TYPE_ADD_USER, (uint8_t*)payload, (uint8_t)len);
+        }
+      }
       // 录入完成切回待机
       g_runtime.mode = RUNTIME_MODE_IDLE;
       g_runtime.pending_card_valid = 0U;
       osDelay(800U);
     }
+    else
+    {
+      /* 录入失败提示 */
+      AttendanceDisplayModelTypeDef display_fail;
+      memset(&display_fail, 0, sizeof(display_fail));
+      display_fail.page = OLED_PAGE_ENROLL;
+      display_fail.hold_ms = 2000U;
+      snprintf(display_fail.line1, sizeof(display_fail.line1), "ENROLL FAIL");
+      snprintf(display_fail.line2, sizeof(display_fail.line2), "CODE:%d", (int)st);
+      RuntimeManager_SetDisplay(&display_fail);
+      DAC_Sound_Error();
+      /* 保持在录入等待指纹态，允许重试或长按退出 */
+      g_runtime.mode = RUNTIME_MODE_ENROLL_WAIT_FINGER;
+      osDelay(800U);
+    }
     return;
   }
-}
+}}
 
 /**
  * @brief 获取当前界面快照，供外部OLED刷新调用
@@ -505,13 +567,56 @@ void RuntimeManager_CheckTaskStep(void)
   KeyEventTypeDef key_event = KeyInput_Scan();
 
   // 录入模式优先处理
-  if (g_runtime.mode != RUNTIME_MODE_IDLE)
+  if (g_runtime.mode == RUNTIME_MODE_ENROLL_WAIT_CARD || g_runtime.mode == RUNTIME_MODE_ENROLL_WAIT_FINGER)
   {
     RuntimeManager_HandleEnrollMode(key_event);
     return;
   }
 
-  // 待机模式：长按OK进入发卡+指纹录入流程
+  // 用户列表模式优先处理
+  if (g_runtime.mode == RUNTIME_MODE_USER_LIST)
+  {
+    RuntimeManager_HandleUserList(key_event);
+    return;
+  }
+
+  // 待机模式：短按OK进入用户列表，长按OK进入发卡+指纹录入流程
+  if (key_event == KEY_EVENT_OK_SHORT)
+  {
+    /* 进入用户列表 */
+    g_runtime.user_list_count = StorageManager_GetUserCount();
+    if (g_runtime.user_list_count == 0U)
+    {
+      /* 无用户 */
+      AttendanceDisplayModelTypeDef display;
+      memset(&display, 0, sizeof(display));
+      display.page = OLED_PAGE_IDLE;
+      display.hold_ms = 2000U;
+      snprintf(display.line1, sizeof(display.line1), "No Users");
+      RuntimeManager_SetDisplay(&display);
+      return;
+    }
+    g_runtime.user_list_index = 0U;
+    g_runtime.mode = RUNTIME_MODE_USER_LIST;
+    /* 显示第一个用户 */
+    {
+      StorageUserTypeDef user;
+      if (StorageManager_GetUserByIndex(g_runtime.user_list_index, &user))
+      {
+        AttendanceDisplayModelTypeDef display;
+        memset(&display, 0, sizeof(display));
+        display.page = OLED_PAGE_IDLE;
+        display.hold_ms = 0U;
+        snprintf(display.line1, sizeof(display.line1), "User %lu/%lu", (unsigned long)(g_runtime.user_list_index+1), (unsigned long)g_runtime.user_list_count);
+        snprintf(display.line2, sizeof(display.line2), "Name:%s", user.name);
+        snprintf(display.line3, sizeof(display.line3), "No:%s", user.employee_no);
+        snprintf(display.line4, sizeof(display.line4), "UID:%02X%02X%02X%02X F:%u", user.rc522_uid[0], user.rc522_uid[1], user.rc522_uid[2], user.rc522_uid[3], (unsigned)user.finger_id);
+        RuntimeManager_SetDisplay(&display);
+      }
+    }
+    return;
+  }
+
   if (key_event == KEY_EVENT_OK_LONG)
   {
     g_runtime.mode = RUNTIME_MODE_ENROLL_WAIT_CARD;
@@ -557,12 +662,8 @@ void RuntimeManager_DisplayTaskStep(void)
   if ((now_tick - g_runtime.last_idle_log_tick) >= RUNTIME_IDLE_LOG_PERIOD_MS)
   {
     g_runtime.last_idle_log_tick = now_tick;
-    COM_DEBUG("OLED[%d]: %s | %s | %s | %s",
-              g_runtime.display.page,
-              g_runtime.display.line1,
-              g_runtime.display.line2,
-              g_runtime.display.line3,
-              g_runtime.display.line4);
+    /* 保留最小调试输出：当前页码 */
+    COM_DEBUG("OLED page=%d", g_runtime.display.page);
   }
 }
 
@@ -614,5 +715,53 @@ void RuntimeManager_TimeSyncTaskStep(void)
     param.work_end_min = schedule.work_end_min;
     param.split_min = schedule.split_min;
     (void)StorageManager_SaveParam(&param);
+  }
+}
+
+/**
+ * @brief 处理用户列表界面输入（上下翻页 + 长按退出）
+ */
+static void RuntimeManager_HandleUserList(KeyEventTypeDef key_event)
+{
+  if (key_event == KEY_EVENT_OK_LONG)
+  {
+    g_runtime.mode = RUNTIME_MODE_IDLE;
+    RuntimeManager_ShowIdle();
+    return;
+  }
+
+  if (key_event == KEY_EVENT_UP_SHORT)
+  {
+    if (g_runtime.user_list_count == 0U) return;
+    if (g_runtime.user_list_index == 0U)
+    {
+      g_runtime.user_list_index = g_runtime.user_list_count - 1U;
+    }
+    else
+    {
+      g_runtime.user_list_index--;
+    }
+  }
+  else if (key_event == KEY_EVENT_DOWN_SHORT)
+  {
+    if (g_runtime.user_list_count == 0U) return;
+    g_runtime.user_list_index = (g_runtime.user_list_index + 1U) % g_runtime.user_list_count;
+  }
+
+  /* 刷新显示为当前索引的用户 */
+  {
+    StorageUserTypeDef user;
+    if (StorageManager_GetUserByIndex(g_runtime.user_list_index, &user))
+    {
+      AttendanceDisplayModelTypeDef display;
+      memset(&display, 0, sizeof(display));
+      display.page = OLED_PAGE_IDLE;
+      display.hold_ms = 0U;
+      snprintf(display.line1, sizeof(display.line1), "User %lu/%lu", (unsigned long)(g_runtime.user_list_index+1), (unsigned long)g_runtime.user_list_count);
+      snprintf(display.line2, sizeof(display.line2), "Name:%s", user.name);
+      snprintf(display.line3, sizeof(display.line3), "No:%s", user.employee_no);
+      snprintf(display.line4, sizeof(display.line4), "UID:%02X%02X%02X%02X F:%u", user.rc522_uid[0], user.rc522_uid[1], user.rc522_uid[2], user.rc522_uid[3], (unsigned)user.finger_id);
+      RuntimeManager_SetDisplay(&display);
+    }
   }
 }

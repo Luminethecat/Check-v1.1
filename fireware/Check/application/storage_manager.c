@@ -289,51 +289,48 @@ uint8_t StorageManager_CreateUser(const uint8_t uid[4], uint16_t finger_id, Stor
   uint32_t addr;
   uint32_t page_addr;
   uint32_t offset_in_page;
-
   for (idx = 0U; idx < STORAGE_MAX_USER_COUNT; idx++)
   {
-    if (StorageManager_ReadUserByIndex(idx, &user) == 0U)
+    /* 直接检查内部数组中的 valid 字段，避免通过 ReadUserByIndex 跳过空槽 */
+    if (g_storage_users[idx].valid == 1U)
     {
-      continue;
+      continue; /* 已占用 */
     }
 
-    if (user.valid == 0xFFU || user.valid == 0U)
+    /* 找到空槽位后自动分配 user_id，并生成默认姓名/工号占位。 */
+    memset(&user, 0, sizeof(user));
+    user.user_id = g_storage_param.next_user_id;
+    user.valid = 1U;
+    user.finger_id = finger_id;
+    memcpy(user.rc522_uid, uid, 4U);
+    snprintf(user.employee_no, sizeof(user.employee_no), "%04lu", (unsigned long)user.user_id);
+    snprintf(user.name, sizeof(user.name), "USER%04lu", (unsigned long)user.user_id);
+
+    g_storage_users[idx] = user;
+
+    if (g_storage_flash_write_enabled)
     {
-      /* 找到空槽位后自动分配 user_id，并生成默认姓名/工号占位。 */
-      memset(&user, 0, sizeof(user));
-      user.user_id = g_storage_param.next_user_id;
-      user.valid = 1U;
-      user.finger_id = finger_id;
-      memcpy(user.rc522_uid, uid, 4U);
-      snprintf(user.employee_no, sizeof(user.employee_no), "%04lu", (unsigned long)user.user_id);
-      snprintf(user.name, sizeof(user.name), "USER%04lu", (unsigned long)user.user_id);
-
-      g_storage_users[idx] = user;
-
-      if (g_storage_flash_write_enabled)
+      addr = StorageManager_UserAddr(idx);
+      page_addr = addr & ~(1024U - 1UL);
+      offset_in_page = addr - page_addr;
+      if (StorageManager_UpdatePage(page_addr,
+                                    offset_in_page,
+                                    (const uint8_t *)&user,
+                                    sizeof(StorageUserTypeDef)) == 0U)
       {
-        addr = StorageManager_UserAddr(idx);
-        page_addr = addr & ~(1024U - 1UL);
-        offset_in_page = addr - page_addr;
-        if (StorageManager_UpdatePage(page_addr,
-                                      offset_in_page,
-                                      (const uint8_t *)&user,
-                                      sizeof(StorageUserTypeDef)) == 0U)
-        {
-          return 0U;
-        }
+        return 0U;
       }
-
-      g_storage_param.next_user_id++;
-      g_storage_param.user_count++;
-      (void)StorageManager_SaveParam(&g_storage_param);
-
-      if (user_out != NULL)
-      {
-        *user_out = user;
-      }
-      return 1U;
     }
+
+    g_storage_param.next_user_id++;
+    g_storage_param.user_count++;
+    (void)StorageManager_SaveParam(&g_storage_param);
+
+    if (user_out != NULL)
+    {
+      *user_out = user;
+    }
+    return 1U;
   }
 
   return 0U;
@@ -432,5 +429,26 @@ uint8_t StorageManager_SaveUserData(void *buffer, uint32_t buffer_size)
     }
   }
 
+  return 1U;
+}
+
+uint32_t StorageManager_GetUserCount(void)
+{
+  return (uint32_t)g_storage_param.user_count;
+}
+
+uint8_t StorageManager_GetUserByIndex(uint32_t index, StorageUserTypeDef *user_out)
+{
+  if (index >= STORAGE_MAX_USER_COUNT || user_out == NULL)
+  {
+    return 0U;
+  }
+
+  if (g_storage_users[index].valid != 1U)
+  {
+    return 0U;
+  }
+
+  *user_out = g_storage_users[index];
   return 1U;
 }

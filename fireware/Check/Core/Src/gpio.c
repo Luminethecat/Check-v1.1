@@ -65,7 +65,8 @@ void MX_GPIO_Init(void)
   /*Configure GPIO pin : IRQ_Pin */
   GPIO_InitStruct.Pin = IRQ_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  /* IRQ 悬空容易导致无法检测，临时启用下拉以确保空闲为低电平，模块上拉到高电平触发上升沿 */
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(IRQ_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : SPI1_CS_Pin RC522_CS_Pin */

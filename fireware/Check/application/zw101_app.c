@@ -1,6 +1,7 @@
 #include "zw101_app.h"
 
 #include "app_board.h"
+#include "Com_debug.h"
 
 #define ZW101_START_CODE_H             0xEFU
 #define ZW101_START_CODE_L             0x01U
@@ -268,7 +269,14 @@ ZW101_StatusTypeDef ZW101_CollectImage(void)
   uint8_t ack[8];
   uint16_t ack_len = sizeof(ack);
 
-  return ZW101_RunCommand(&cmd, 1U, ack, &ack_len, 1000U);
+  ZW101_StatusTypeDef status = ZW101_RunCommand(&cmd, 1U, ack, &ack_len, 1000U);
+  if (status == ZW101_NO_FINGER)
+  {
+    HAL_Delay(250U);
+    status = ZW101_RunCommand(&cmd, 1U, ack, &ack_len, 1000U);
+  }
+
+  return status;
 }
 
 ZW101_StatusTypeDef ZW101_GenerateChar(uint8_t buffer_id)
@@ -401,7 +409,12 @@ ZW101_StatusTypeDef ZW101_Enroll(uint16_t page_id)
     return status;
   }
 
-  return ZW101_StoreModel(ZW101_TEMPLATE_BUFFER_1, page_id);
+  status = ZW101_StoreModel(ZW101_TEMPLATE_BUFFER_1, page_id);
+  if (status != ZW101_OK)
+  {
+  } else {
+  }
+  return status;
 }
 
 ZW101_StatusTypeDef ZW101_Identify(ZW101_SearchResultTypeDef *result)

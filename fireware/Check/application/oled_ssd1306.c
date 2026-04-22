@@ -30,6 +30,12 @@ static void Oled_I2C_Reset(void)
 /* 使用最小 5x7 ASCII 字库，优先保证 0.96 寸 OLED 可直接显示业务信息。 */
 static uint8_t oled_buffer[OLED_WIDTH * OLED_PAGE_COUNT];
 
+/* 清空显示缓冲区并保留显示器刷新操作由调用者控制 */
+void Oled_Clear(void)
+{
+  memset(oled_buffer, 0, sizeof(oled_buffer));
+}
+
 static const uint8_t oled_font_5x7[][5] = {
   {0x00,0x00,0x00,0x00,0x00},{0x00,0x00,0x5F,0x00,0x00},{0x00,0x07,0x00,0x07,0x00},{0x14,0x7F,0x14,0x7F,0x14},
   {0x24,0x2A,0x7F,0x2A,0x12},{0x23,0x13,0x08,0x64,0x62},{0x36,0x49,0x55,0x22,0x50},{0x00,0x05,0x03,0x00,0x00},
@@ -141,11 +147,12 @@ uint8_t Oled_ConsumeReinitRequest(void)
 void Oled_Init(void)
 {
   HAL_Delay(100U);
-  /* 尝试获取 I2C 互斥，若拿不到则记录并返回，避免与其他并发访问冲突 */
-  if (mutex_i2cHandle == NULL || osSemaphoreAcquire(mutex_i2cHandle, pdMS_TO_TICKS(200)) != osOK) {
-    /* failed to acquire mutex */
-    return;
+  /* If RTOS mutex is not yet created (early init before scheduler), perform init without mutex. */
+  int have_mutex = 0;
+  if (mutex_i2cHandle != NULL && osSemaphoreAcquire(mutex_i2cHandle, pdMS_TO_TICKS(200)) == osOK) {
+    have_mutex = 1;
   }
+
   Oled_WriteCommand(0xAEU);
   Oled_WriteCommand(0x20U);
   Oled_WriteCommand(0x10U);
@@ -175,13 +182,15 @@ void Oled_Init(void)
   Oled_WriteCommand(0x14U);
   Oled_WriteCommand(0xAFU);
   Oled_Clear();
-  /* 已获取互斥，调用不加锁的内部刷新实现 */
-  Oled_UpdateScreen_NoLock();
-  osSemaphoreRelease(mutex_i2cHandle);
-}
 
-void Oled_Clear(void)
-{
+  /* 已获取互斥则在互斥下刷新；否则直接无锁刷新（初始化阶段） */
+  if (have_mutex) {
+    Oled_UpdateScreen_NoLock();
+    osSemaphoreRelease(mutex_i2cHandle);
+  } else {
+    Oled_UpdateScreen_NoLock();
+  }
+
   memset(oled_buffer, 0, sizeof(oled_buffer));
 }
 
@@ -212,6 +221,7 @@ void Oled_UpdateScreen(void)
 static void Oled_UpdateScreen_NoLock(void)
 {
   uint8_t page;
+
   for (page = 0U; page < OLED_PAGE_COUNT; page++)
   {
     Oled_WriteCommand((uint8_t)(0xB0U + page));

@@ -346,8 +346,8 @@ void Attendance_BuildIdleDisplay(AttendanceDisplayModelTypeDef *display,
 
   memset(display, 0, sizeof(*display));
   display->page = OLED_PAGE_IDLE;
-  snprintf(display->line1, sizeof(display->line1), "%04u-%02u-%02u %02u:%02u",
-           now->year, now->month, now->day, now->hour, now->minute);
+  snprintf(display->line1, sizeof(display->line1), "%04u-%02u-%02u %02u:%02u:%02u",
+           now->year, now->month, now->day, now->hour, now->minute, now->second);
   snprintf(display->line2, sizeof(display->line2), "%s", period_text);
   snprintf(display->line3, sizeof(display->line3), "WiFi:%s RTC:%s",
            (wifi_online != 0U) ? "OK" : "OFF",
