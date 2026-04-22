@@ -36,6 +36,32 @@
 #include "Com_protocol.h"
 #include "application.h"
 
+/* Mute control implementation (moved out of main to ensure external linkage) */
+void Mute_Init(void)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  __HAL_RCC_GPIOB_CLK_ENABLE();  // 使能 GPIOB 时钟
+
+  GPIO_InitStruct.Pin = GPIO_PIN_1;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;      // 外部已有上拉，内部不用
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);  // 默认高电平，解除静音
+}
+
+void Mute_Enable(void)
+{
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);  // 高电平 → 解除静音（允许发声）
+}
+
+void Mute_Disable(void)
+{
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET); // 低电平 → 静音
+}
+
   PUTCHAR_PROTOTYPE 
 {
   HAL_UART_Transmit(&huart3, (uint8_t *)&ch, 1, 100);
@@ -84,32 +110,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-// 放在 /* USER CODE BEGIN Includes */ 之后
-
-
-void Mute_Init(void)
-{
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-  __HAL_RCC_GPIOB_CLK_ENABLE();  // 使能 GPIOB 时钟
-
-  GPIO_InitStruct.Pin = GPIO_PIN_1;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;      // 外部已有上拉，内部不用
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);  // 默认高电平，解除静音
-}
-void Mute_Enable(void)
-{
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);  // 高电平 → 解除静音（允许发声）
-}
-
-void Mute_Disable(void)
-{
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET); // 低电平 → 静音
-}
+  /* USER CODE END 1 */
 
   /* USER CODE END 1 */
 
