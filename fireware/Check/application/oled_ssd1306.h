@@ -18,7 +18,8 @@ void Oled_UpdateScreen(void);
 void Oled_DrawChar(uint8_t x, uint8_t y, char ch);
 void Oled_DrawString(uint8_t x, uint8_t y, const char *text);
 void Oled_RenderDisplayModel(const AttendanceDisplayModelTypeDef *display);
-
+void Oled_TriggerReinit(void);
+uint8_t Oled_ConsumeReinitRequest(void);
 #ifdef __cplusplus
 }
 #endif

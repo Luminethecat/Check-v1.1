@@ -101,15 +101,15 @@ void Mute_Init(void)
 
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);  // 默认高电平，解除静音
 }
-// void Mute_Enable(void)
-// {
-//   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);  // 高电平 → 发声
-// }
+void Mute_Enable(void)
+{
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);  // 高电平 → 解除静音（允许发声）
+}
 
-// void Mute_Disable(void)
-// {
-//   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET); // 低电平 → 静音
-// }
+void Mute_Disable(void)
+{
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET); // 低电平 → 静音
+}
 
   /* USER CODE END 1 */
 

@@ -11,7 +11,7 @@ extern "C" {
 #define STORAGE_ADDR_USER_BASE             0x0800E000UL
 #define STORAGE_ADDR_RECORD_BASE           0x0800C000UL
 
-#define STORAGE_MAX_USER_COUNT             512UL
+#define STORAGE_MAX_USER_COUNT             20UL
 #define STORAGE_MAX_RECORD_COUNT           4096UL
 
 #ifdef __cplusplus

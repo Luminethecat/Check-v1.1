@@ -3,8 +3,10 @@
 #include "usart.h"
 #include "main.h"
 #include "attendance_app.h"
+#include "storage_manager.h"
 #include "string.h"
 #include <stdio.h>
+#include "oled_ssd1306.h"
 
 extern RTC_HandleTypeDef hrtc;
 
@@ -195,6 +197,20 @@ uint8_t Com_HandleFrame(FrameStruct_t *frame)
             if (Com_SetRTCTimeFromString((const char*)frame->data)) {
                 Attendance_SetRtcValid(1U);
                 COM_DEBUG("RTC time updated from BJ time");
+                /* 持久化 rtc_valid 标志，避免重启后丢失。仅当之前为 0 时触发 OLED 重初始化，避免重复冲突 */
+                {
+                    StorageParamTypeDef param = StorageManager_GetParam();
+                    if (param.rtc_valid == 0U) {
+                        param.rtc_valid = 1U;
+                        if (StorageManager_SaveParam(&param)) {
+                            COM_DEBUG("[OK] StorageParam: rtc_valid persisted");
+                        } else {
+                            COM_DEBUG("[ERR] StorageParam: save rtc_valid failed");
+                        }
+                        /* 只有在实际从无效->有效时触发一次显示刷新（不做硬件重初始化，避免 I2C 冲突） */
+                        /* 上层 RuntimeManager 会在 next tick 检测到 rtc_valid 变化并刷新显示 */
+                    }
+                }
             } else {
                 COM_DEBUG("RTC time parse failed, ignore");
             }

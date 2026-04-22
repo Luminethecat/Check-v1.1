@@ -30,10 +30,10 @@ typedef struct
 typedef struct
 {
   uint32_t user_id;
-  char employee_no[STORAGE_EMPLOYEE_NO_LEN];
-  char name[STORAGE_USER_NAME_LEN];
   uint8_t rc522_uid[4];
   uint16_t finger_id;
+  char employee_no[STORAGE_EMPLOYEE_NO_LEN];
+  char name[STORAGE_USER_NAME_LEN];
   uint8_t valid;
   uint8_t reserved[9];
 } StorageUserTypeDef;
@@ -67,6 +67,8 @@ uint8_t StorageManager_FindUserByFinger(uint16_t finger_id, StorageUserTypeDef *
 uint8_t StorageManager_SaveUser(const StorageUserTypeDef *user);
 uint8_t StorageManager_CreateUser(const uint8_t uid[4], uint16_t finger_id, StorageUserTypeDef *user_out);
 uint8_t StorageManager_AppendRecord(const StorageRecordTypeDef *record, uint32_t *record_index_out);
+uint8_t StorageManager_LoadUserData(void *buffer, uint32_t buffer_size);
+uint8_t StorageManager_SaveUserData(void *buffer, uint32_t buffer_size);
 
 #ifdef __cplusplus
 }

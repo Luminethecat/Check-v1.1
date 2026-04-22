@@ -6,11 +6,12 @@
 #include "oled_ssd1306.h"
 #include "rc522_app.h"
 #include "zw101_app.h"
-
+#include "user_db.h"
 /* 应用层统一初始化入口：
  * 这里按业务依赖顺序初始化各模块，后续 main 只需要调用一次即可。 */
 void Application_Init(void)
 {
+  UserDB_Init();
   Attendance_Init();
   RC522_Init();
   ZW101_Init();

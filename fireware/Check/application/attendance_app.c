@@ -82,7 +82,7 @@ static const char *Attendance_ResultText(AttendanceResultTypeDef result)
 
 static uint8_t Attendance_ToBcdDigit(uint16_t value)
 {
-  return (uint8_t)('0' + (value % 10U));
+  return (uint8_t)((value % 10U));
 }
 
 static void Attendance_FormatEspTime(const AttendanceDateTimeTypeDef *timestamp,

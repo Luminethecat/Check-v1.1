@@ -3,6 +3,7 @@
 #include "cmsis_os.h"
 #include "dac.h"
 #include "stm32f1xx_hal.h"
+#include "app_board.h"
 
 extern DAC_HandleTypeDef hdac;
 
@@ -88,31 +89,39 @@ void DAC_Sound_Init(void)
 
 void DAC_Sound_Beep(void)
 {
+    Mute_Enable();
     play_tone(1500, 80, DAC_VOLUME);
+    Mute_Disable();
 }
 
 
 void DAC_Sound_Success(void)
 {
+    Mute_Enable();
     play_tone(1200, 80, DAC_VOLUME);
 
     osDelay(30);
 
     play_tone(1800, 120, DAC_VOLUME);
+    Mute_Disable();
 }
 
 
 void DAC_Sound_Error(void)
 {
+    Mute_Enable();
     play_tone(500, 250, DAC_VOLUME);
+    Mute_Disable();
 }
 
 
 void DAC_Sound_Welcome(void)
 {
+    Mute_Enable();
     play_tone(800, 120, DAC_VOLUME);
 
     osDelay(40);
 
     play_tone(1200, 150, DAC_VOLUME);
+    Mute_Disable();
 }

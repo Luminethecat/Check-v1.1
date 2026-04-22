@@ -12,7 +12,7 @@
 
 static StorageParamTypeDef g_storage_param;
 static StorageUserTypeDef g_storage_users[STORAGE_MAX_USER_COUNT];
-static uint8_t g_storage_sector_buffer[1024U];
+static uint8_t g_storage_sector_buffer[1024U];  /* Flash页缓冲区 */
 static uint32_t g_storage_record_index = 0U;
 static uint8_t g_storage_flash_write_enabled = 0U;  /* 测试阶段默认关闭写Flash */
 
@@ -390,6 +390,46 @@ uint8_t StorageManager_AppendRecord(const StorageRecordTypeDef *record, uint32_t
   if (record_index_out != NULL)
   {
     *record_index_out = record_index;
+  }
+
+  return 1U;
+}
+
+uint8_t StorageManager_LoadUserData(void *buffer, uint32_t buffer_size)
+{
+  if (buffer == NULL || buffer_size < sizeof(g_storage_users))
+  {
+    return 0U;
+  }
+
+  memcpy(buffer, g_storage_users, sizeof(g_storage_users));
+  return 1U;
+}
+
+uint8_t StorageManager_SaveUserData(void *buffer, uint32_t buffer_size)
+{
+  if (buffer == NULL || buffer_size < sizeof(g_storage_users))
+  {
+    return 0U;
+  }
+
+  memcpy(g_storage_users, buffer, sizeof(g_storage_users));
+
+  // 保存到Flash
+  if (g_storage_flash_write_enabled)
+  {
+    uint32_t i;
+    for (i = 0; i < STORAGE_MAX_USER_COUNT; i++)
+    {
+      uint32_t addr = StorageManager_UserAddr(i);
+      if (g_storage_users[i].valid)
+      {
+        if (StorageManager_WriteBuffer(addr, (const uint8_t *)&g_storage_users[i], sizeof(StorageUserTypeDef)) == 0U)
+        {
+          return 0U;
+        }
+      }
+    }
   }
 
   return 1U;

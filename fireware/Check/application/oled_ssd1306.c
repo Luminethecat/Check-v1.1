@@ -1,7 +1,24 @@
 #include "oled_ssd1306.h"
 
+#include "Com_debug.h"
 #include "i2c.h"
 #include "string.h"
+#include "cmsis_os.h"
+
+/* 外部定义的 I2C 互斥信号量（在 freertos.c 中创建） */
+extern osSemaphoreId_t mutex_i2cHandle;
+
+/* 当 I2C 总线连续写失败时，尝试对 I2C 外设软复位以恢复 */
+static void Oled_I2C_Reset(void)
+{
+  (void)HAL_I2C_DeInit(&hi2c1);
+  HAL_Delay(5);
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK) {
+    /* re-init failed - nothing more to do here */
+  } else {
+    /* re-init ok */
+  }
+}
 
 #define OLED_I2C_ADDR                     (0x3CU << 1U)
 #define OLED_CONTROL_CMD                  0x00U
@@ -39,11 +56,32 @@ static const uint8_t oled_font_5x7[][5] = {
   {0x44,0x28,0x10,0x28,0x44},{0x0C,0x50,0x50,0x50,0x3C},{0x44,0x64,0x54,0x4C,0x44},{0x00,0x08,0x36,0x41,0x00},
   {0x00,0x00,0x7F,0x00,0x00},{0x00,0x41,0x36,0x08,0x00},{0x08,0x04,0x08,0x10,0x08},{0x00,0x00,0x00,0x00,0x00}
 };
-
+static void Oled_UpdateScreen_NoLock(void);
 static void Oled_WriteCommand(uint8_t cmd)
 {
   uint8_t packet[2] = {OLED_CONTROL_CMD, cmd};
-  (void)HAL_I2C_Master_Transmit(&hi2c1, OLED_I2C_ADDR, packet, sizeof(packet), 100U);
+  int ret = HAL_OK;
+  int attempt;
+  for (attempt = 0; attempt < 5; attempt++) {
+    ret = HAL_I2C_Master_Transmit(&hi2c1, OLED_I2C_ADDR, packet, sizeof(packet), 100U);
+    if (ret == HAL_OK) break;
+    if (ret == HAL_BUSY) {
+      HAL_Delay(1);
+      continue;
+    }
+    HAL_Delay(1);
+  }
+
+  if (ret != HAL_OK) {
+    /* 如果多次重试仍失败，尝试软复位 I2C 再重试一次 */
+    Oled_I2C_Reset();
+    ret = HAL_I2C_Master_Transmit(&hi2c1, OLED_I2C_ADDR, packet, sizeof(packet), 100U);
+    if (ret != HAL_OK) {
+      /* final command write failed */
+    } else {
+      /* final command write succeeded */
+    }
+  }
 }
 
 static void Oled_WriteData(const uint8_t *data, uint16_t size)
@@ -58,14 +96,56 @@ static void Oled_WriteData(const uint8_t *data, uint16_t size)
   {
     chunk = (uint8_t)((size - offset) > 16U ? 16U : (size - offset));
     memcpy(&packet[1], &data[offset], chunk);
-    (void)HAL_I2C_Master_Transmit(&hi2c1, OLED_I2C_ADDR, packet, (uint16_t)(chunk + 1U), 100U);
+    int ret = HAL_OK;
+    int attempt;
+    /* 重试策略：遇到 BUSY 则短等待后重试，避免与同时发生的外设操作冲突 */
+    for (attempt = 0; attempt < 5; attempt++) {
+      ret = HAL_I2C_Master_Transmit(&hi2c1, OLED_I2C_ADDR, packet, (uint16_t)(chunk + 1U), 100U);
+      if (ret == HAL_OK) break;
+      if (ret == HAL_BUSY) {
+        HAL_Delay(2);
+        continue;
+      }
+      HAL_Delay(2);
+    }
+    if (ret != HAL_OK) {
+      Oled_I2C_Reset();
+      ret = HAL_I2C_Master_Transmit(&hi2c1, OLED_I2C_ADDR, packet, (uint16_t)(chunk + 1U), 100U);
+      if (ret != HAL_OK) {
+        /* final transmit failed */
+      } else {
+        /* final transmit succeeded */
+      }
+    }
     offset += chunk;
   }
+}
+
+/* 可由外部触发的重初始化标志（DisplayTask 将在安全上下文中执行重初始化） */
+static volatile uint8_t g_oled_reinit_request = 0U;
+
+void Oled_TriggerReinit(void)
+{
+  g_oled_reinit_request = 1U;
+}
+
+uint8_t Oled_ConsumeReinitRequest(void)
+{
+  if (g_oled_reinit_request != 0U) {
+    g_oled_reinit_request = 0U;
+    return 1U;
+  }
+  return 0U;
 }
 
 void Oled_Init(void)
 {
   HAL_Delay(100U);
+  /* 尝试获取 I2C 互斥，若拿不到则记录并返回，避免与其他并发访问冲突 */
+  if (mutex_i2cHandle == NULL || osSemaphoreAcquire(mutex_i2cHandle, pdMS_TO_TICKS(200)) != osOK) {
+    /* failed to acquire mutex */
+    return;
+  }
   Oled_WriteCommand(0xAEU);
   Oled_WriteCommand(0x20U);
   Oled_WriteCommand(0x10U);
@@ -95,7 +175,9 @@ void Oled_Init(void)
   Oled_WriteCommand(0x14U);
   Oled_WriteCommand(0xAFU);
   Oled_Clear();
-  Oled_UpdateScreen();
+  /* 已获取互斥，调用不加锁的内部刷新实现 */
+  Oled_UpdateScreen_NoLock();
+  osSemaphoreRelease(mutex_i2cHandle);
 }
 
 void Oled_Clear(void)
@@ -108,12 +190,35 @@ void Oled_UpdateScreen(void)
   uint8_t page;
 
   /* SSD1306 以页为单位刷新，每页 8 行像素。 */
+  /* 由上层获取互斥再调用或自行获取后调用内部刷新函数 */
+  if (mutex_i2cHandle == NULL || osSemaphoreAcquire(mutex_i2cHandle, pdMS_TO_TICKS(200)) != osOK) {
+    /* failed to acquire mutex */
+    return;
+  }
+
   for (page = 0U; page < OLED_PAGE_COUNT; page++)
   {
     Oled_WriteCommand((uint8_t)(0xB0U + page));
     Oled_WriteCommand(0x00U);
     Oled_WriteCommand(0x10U);
     Oled_WriteData(&oled_buffer[OLED_WIDTH * page], OLED_WIDTH);
+    HAL_Delay(1);
+  }
+
+  osSemaphoreRelease(mutex_i2cHandle);
+}
+
+/* 内部不加锁的刷新实现（假定调用者已持有互斥） */
+static void Oled_UpdateScreen_NoLock(void)
+{
+  uint8_t page;
+  for (page = 0U; page < OLED_PAGE_COUNT; page++)
+  {
+    Oled_WriteCommand((uint8_t)(0xB0U + page));
+    Oled_WriteCommand(0x00U);
+    Oled_WriteCommand(0x10U);
+    Oled_WriteData(&oled_buffer[OLED_WIDTH * page], OLED_WIDTH);
+    HAL_Delay(1);
   }
 }
 
@@ -162,6 +267,7 @@ void Oled_RenderDisplayModel(const AttendanceDisplayModelTypeDef *display)
   {
     return;
   }
+  /* render model to buffer */
 
   /* 当前显示模型固定映射到四行文本，后续可继续扩展图标/进度条。 */
   Oled_Clear();

@@ -27,6 +27,11 @@ extern "C" {
 #define APP_SPI_TIMEOUT_MS             100U
 #define APP_UART_TIMEOUT_MS            500U
 
+/* 音频板级静音控制（在 main.c 中实现） */
+void Mute_Init(void);
+void Mute_Enable(void);
+void Mute_Disable(void);
+
 #ifdef __cplusplus
 }
 #endif
