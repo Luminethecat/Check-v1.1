@@ -14,6 +14,7 @@ void RuntimeManager_CheckTaskStep(void);
 void RuntimeManager_DisplayTaskStep(void);
 void RuntimeManager_TimeSyncTaskStep(void);
 void RuntimeManager_GetDisplaySnapshot(AttendanceDisplayModelTypeDef *display);
+uint8_t RuntimeManager_RemoteCheckInByUserId(uint32_t user_id);
 
 #ifdef __cplusplus
 }

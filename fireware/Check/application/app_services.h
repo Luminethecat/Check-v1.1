@@ -22,6 +22,8 @@ RC522_StatusTypeDef App_Rc522_WriteBlock(uint8_t block_addr,
 
 ZW101_StatusTypeDef App_Zw101_EnrollUser(uint32_t password, uint16_t user_id);
 ZW101_StatusTypeDef App_Zw101_IdentifyUser(uint32_t password, ZW101_SearchResultTypeDef *result);
+ZW101_StatusTypeDef App_Zw101_DeleteUser(uint32_t password, uint16_t user_id);
+ZW101_StatusTypeDef App_Zw101_ClearLibrary(uint32_t password);
 
 #ifdef __cplusplus
 }

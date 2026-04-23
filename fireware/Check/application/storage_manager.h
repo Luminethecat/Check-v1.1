@@ -64,6 +64,8 @@ void StorageManager_SetFlashWriteEnabled(uint8_t enabled);
 
 uint8_t StorageManager_FindUserByCard(const uint8_t uid[4], StorageUserTypeDef *user_out);
 uint8_t StorageManager_FindUserByFinger(uint16_t finger_id, StorageUserTypeDef *user_out);
+uint8_t StorageManager_FindUserById(uint32_t user_id, StorageUserTypeDef *user_out);
+uint16_t StorageManager_GetNextFreeUserId(void);
 uint8_t StorageManager_SaveUser(const StorageUserTypeDef *user);
 uint8_t StorageManager_CreateUser(const uint8_t uid[4], uint16_t finger_id, StorageUserTypeDef *user_out);
 uint8_t StorageManager_AppendRecord(const StorageRecordTypeDef *record, uint32_t *record_index_out);
@@ -71,6 +73,7 @@ uint8_t StorageManager_LoadUserData(void *buffer, uint32_t buffer_size);
 uint8_t StorageManager_SaveUserData(void *buffer, uint32_t buffer_size);
 uint32_t StorageManager_GetUserCount(void);
 uint8_t StorageManager_GetUserByIndex(uint32_t index, StorageUserTypeDef *user_out);
+uint8_t StorageManager_DeleteUser(uint32_t user_id);
 
 #ifdef __cplusplus
 }

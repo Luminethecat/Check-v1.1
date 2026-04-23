@@ -35,7 +35,7 @@
 #include "stdio.h"
 #include "Com_protocol.h"
 #include "application.h"
-
+#include "app_services.h"
 /* Mute control implementation (moved out of main to ensure external linkage) */
 void Mute_Init(void)
 {
@@ -162,6 +162,7 @@ int main(void)
 
   /* Start scheduler */
   osKernelStart();
+//App_Zw101_ClearLibrary(0U);//清除指纹库
 
   /* We should never get here as control is now taken by the scheduler */
 

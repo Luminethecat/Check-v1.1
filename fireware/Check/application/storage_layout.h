@@ -5,14 +5,15 @@
 extern "C" {
 #endif
 
-/* 内部Flash固定分区：
- * 参数区放设备配置，用户区放身份档案，记录区顺序追加。 */
-#define STORAGE_ADDR_SYS_PARAM_BASE        0x0800F000UL  // 内部Flash末尾
-#define STORAGE_ADDR_USER_BASE             0x0800E000UL
-#define STORAGE_ADDR_RECORD_BASE           0x0800C000UL
+/* STM32F103RCT6: 256KB internal Flash, top address is 0x0803FFFF.
+ * Reserve the last pages for parameters and users, and a fixed region below
+ * them for attendance records. This avoids overwriting the application code. */
+#define STORAGE_ADDR_SYS_PARAM_BASE        0x0803F800UL
+#define STORAGE_ADDR_USER_BASE             0x0803F000UL
+#define STORAGE_ADDR_RECORD_BASE           0x08030000UL
 
 #define STORAGE_MAX_USER_COUNT             20UL
-#define STORAGE_MAX_RECORD_COUNT           4096UL
+#define STORAGE_MAX_RECORD_COUNT           1920UL
 
 #ifdef __cplusplus
 }

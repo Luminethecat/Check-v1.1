@@ -376,8 +376,14 @@ ZW101_StatusTypeDef ZW101_Search(uint8_t buffer_id,
 ZW101_StatusTypeDef ZW101_Enroll(uint16_t page_id)
 {
   ZW101_StatusTypeDef status;
-
-  status = ZW101_CollectImage();
+  /* 首次采集：允许多次重试以降低录入难度 */
+  uint8_t try_cnt = 0U;
+  for (try_cnt = 0U; try_cnt < 8U; try_cnt++)
+  {
+    status = ZW101_CollectImage();
+    if (status == ZW101_OK) break;
+    HAL_Delay(200U);
+  }
   if (status != ZW101_OK)
   {
     return status;
@@ -389,9 +395,14 @@ ZW101_StatusTypeDef ZW101_Enroll(uint16_t page_id)
     return status;
   }
 
-  HAL_Delay(800U);
-
-  status = ZW101_CollectImage();
+  /* 等待用户调整手指位置，再次采集；同样允许重试 */
+  HAL_Delay(600U);
+  for (try_cnt = 0U; try_cnt < 8U; try_cnt++)
+  {
+    status = ZW101_CollectImage();
+    if (status == ZW101_OK) break;
+    HAL_Delay(200U);
+  }
   if (status != ZW101_OK)
   {
     return status;

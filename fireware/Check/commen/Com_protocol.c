@@ -4,7 +4,9 @@
 #include "main.h"
 #include "attendance_app.h"
 #include "storage_manager.h"
+#include "runtime_manager.h"
 #include "string.h"
+#include <stdlib.h>
 #include <stdio.h>
 #include "oled_ssd1306.h"
 
@@ -40,6 +42,106 @@ static uint8_t Com_SetRTCTimeFromString(const char *timeStr)
         return 0;
     }
     return 1;
+}
+
+static uint8_t Com_UpdateScheduleAndPersist(const char *schedule_text)
+{
+    StorageParamTypeDef param;
+    AttendanceScheduleTypeDef schedule;
+
+    if (Attendance_SetScheduleFromString(schedule_text) == 0U)
+    {
+        return 0U;
+    }
+
+    schedule = Attendance_GetSchedule();
+    param = StorageManager_GetParam();
+    param.work_start_min = schedule.work_start_min;
+    param.work_end_min = schedule.work_end_min;
+    param.split_min = schedule.split_min;
+
+    return StorageManager_SaveParam(&param);
+}
+
+static uint8_t Com_HandleRemoteCheckInPayload(const uint8_t *data, uint8_t len)
+{
+    uint32_t user_id = 0U;
+
+    if (data == NULL || len == 0U)
+    {
+        COM_DEBUG("REMOTE_CHECKIN ignored: empty payload");
+        return 0U;
+    }
+
+    if (len == 4U)
+    {
+        user_id = ((uint32_t)data[0] << 24U) |
+                  ((uint32_t)data[1] << 16U) |
+                  ((uint32_t)data[2] << 8U) |
+                  ((uint32_t)data[3]);
+        return RuntimeManager_RemoteCheckInByUserId(user_id);
+    }
+
+    if ((len == 14U) && (memcmp(data, "remote_checkin", 14U) == 0))
+    {
+        COM_DEBUG("REMOTE_CHECKIN generic command received, but no user_id provided");
+        return 0U;
+    }
+
+    COM_DEBUG("REMOTE_CHECKIN unsupported payload len=%u", (unsigned)len);
+    return 0U;
+}
+
+static uint8_t Com_HandleAddUserPayload(const uint8_t *data, uint8_t len)
+{
+    char text[96];
+    char *token_user_id;
+    char *token_emp_no;
+    char *token_name;
+    StorageUserTypeDef user;
+    uint32_t user_id;
+
+    if (data == NULL || len == 0U || len >= sizeof(text))
+    {
+        return 0U;
+    }
+
+    memset(text, 0, sizeof(text));
+    memcpy(text, data, len);
+
+    token_user_id = strtok(text, "|");
+    token_emp_no = strtok(NULL, "|");
+    token_name = strtok(NULL, "|");
+
+    if (token_user_id == NULL || token_emp_no == NULL || token_name == NULL)
+    {
+        COM_DEBUG("ADD_USER payload unsupported: %.*s", len, data);
+        return 0U;
+    }
+
+    user_id = (uint32_t)strtoul(token_user_id, NULL, 10);
+    if (StorageManager_FindUserById(user_id, &user) == 0U)
+    {
+        COM_DEBUG("ADD_USER ignored: local user_id=%lu not found", (unsigned long)user_id);
+        return 0U;
+    }
+
+    memset(user.employee_no, 0, sizeof(user.employee_no));
+    memset(user.name, 0, sizeof(user.name));
+    strncpy(user.employee_no, token_emp_no, sizeof(user.employee_no) - 1U);
+    strncpy(user.name, token_name, sizeof(user.name) - 1U);
+
+    if (StorageManager_SaveUser(&user) == 0U)
+    {
+        COM_DEBUG("ADD_USER update failed for user_id=%lu", (unsigned long)user_id);
+        return 0U;
+    }
+
+    COM_DEBUG("ADD_USER updated local user_id=%lu no=%s name=%s",
+              (unsigned long)user.user_id,
+              user.employee_no,
+              user.name);
+    return 1U;
 }
 
 // CRC16-MODBUS查表法全局变量
@@ -219,13 +321,13 @@ uint8_t Com_HandleFrame(FrameStruct_t *frame)
         case TYPE_ADD_USER:
         {
             COM_DEBUG("TYPE_ADD_USER received data_len=%d", frame->data_len);
-            // 新增用户处理
+            (void)Com_HandleAddUserPayload(frame->data, frame->data_len);
             break;
         }
         case TYPE_REMOTE_CHECKIN:
         {
             COM_DEBUG("TYPE_REMOTE_CHECKIN received data_len=%d", frame->data_len);
-            // 远程打卡处理
+            (void)Com_HandleRemoteCheckInPayload(frame->data, frame->data_len);
             break;
         }
         case TYPE_RESTART_STM32:
@@ -237,12 +339,11 @@ uint8_t Com_HandleFrame(FrameStruct_t *frame)
         case TYPE_SET_WORK_TIME:
         {
             COM_DEBUG("TYPE_SET_WORK_TIME received: %.*s", frame->data_len, frame->data);
-            if (Attendance_SetScheduleFromString((const char*)frame->data)) {
-                COM_DEBUG("work schedule updated");
+            if (Com_UpdateScheduleAndPersist((const char*)frame->data)) {
+                COM_DEBUG("work schedule updated and saved");
             } else {
                 COM_DEBUG("work schedule parse failed");
             }
-            // 设置上下班时间处理
             break;
         }
         case TYPE_TIME_REQ:

@@ -42,6 +42,7 @@ typedef enum
   RUNTIME_MODE_ENROLL_WAIT_CARD,        // 录入模式：等待刷IC卡
   RUNTIME_MODE_ENROLL_WAIT_FINGER,      // 录入模式：等待按压指纹
   RUNTIME_MODE_USER_LIST,               // 浏览已注册用户列表
+  RUNTIME_MODE_USER_LIST_CONFIRM,       // 用户删除确认对话框
 } RuntimeModeTypeDef;
 
 /**
@@ -64,11 +65,14 @@ typedef struct
   uint8_t pending_card_valid;                  // 临时卡号是否有效标志位
   uint32_t user_list_index;                    // 用户列表当前索引
   uint32_t user_list_count;                    // 用户列表计数
+  uint32_t user_list_pending_delete_index;     // 待删除用户索引（确认阶段）
+  uint8_t user_list_confirm_choice;            // 0=no,1=yes
 } RuntimeContextTypeDef;
 
 // 本文件静态全局运行时实例
 static RuntimeContextTypeDef g_runtime;
 static void RuntimeManager_HandleUserList(KeyEventTypeDef key_event);
+static void RuntimeManager_HandleUserListConfirm(KeyEventTypeDef key_event);
 /**
  * @brief 根据考勤结果播放对应提示音
  * @param result 考勤结果枚举
@@ -400,7 +404,20 @@ static void RuntimeManager_HandleEnrollMode(KeyEventTypeDef key_event)
 
     // 读取系统参数，获取下一个可用用户ID
     param = StorageManager_GetParam();
-    next_finger_id = (uint16_t)param.next_user_id;
+    (void)param;
+    next_finger_id = StorageManager_GetNextFreeUserId();
+    if (next_finger_id == 0U)
+    {
+      AttendanceDisplayModelTypeDef display_full;
+      memset(&display_full, 0, sizeof(display_full));
+      display_full.page = OLED_PAGE_ENROLL;
+      display_full.hold_ms = 2000U;
+      snprintf(display_full.line1, sizeof(display_full.line1), "USER FULL");
+      snprintf(display_full.line2, sizeof(display_full.line2), "NO FREE ID");
+      RuntimeManager_SetDisplay(&display_full);
+      DAC_Sound_Error();
+      return;
+    }
 
     // 卡号有效：等待检测到指纹模块上有手指再开始录入
     if (g_runtime.pending_card_valid != 0U)
@@ -579,10 +596,39 @@ void RuntimeManager_CheckTaskStep(void)
     RuntimeManager_HandleUserList(key_event);
     return;
   }
+  if (g_runtime.mode == RUNTIME_MODE_USER_LIST_CONFIRM)
+  {
+    RuntimeManager_HandleUserListConfirm(key_event);
+    return;
+  }
 
   // 待机模式：短按OK进入用户列表，长按OK进入发卡+指纹录入流程
   if (key_event == KEY_EVENT_OK_SHORT)
   {
+    /* 在用户列表模式内，短按 OK 弹出删除确认对话框 */
+    if (g_runtime.mode == RUNTIME_MODE_USER_LIST)
+    {
+      /* 进入确认态，记录待删除索引，默认选中 No */
+      g_runtime.user_list_pending_delete_index = g_runtime.user_list_index;
+      g_runtime.user_list_confirm_choice = 0U; /* 0 = No, 1 = Yes */
+      g_runtime.mode = RUNTIME_MODE_USER_LIST_CONFIRM;
+
+      /* 显示确认对话 */
+      StorageUserTypeDef user;
+      if (StorageManager_GetUserByIndex(g_runtime.user_list_pending_delete_index, &user))
+      {
+        AttendanceDisplayModelTypeDef display;
+        memset(&display, 0, sizeof(display));
+        display.page = OLED_PAGE_IDLE;
+        display.hold_ms = 0U;
+        snprintf(display.line1, sizeof(display.line1), "Delete User?");
+        snprintf(display.line2, sizeof(display.line2), "Name:%s", user.name);
+        snprintf(display.line3, sizeof(display.line3), "No:%s", user.employee_no);
+        snprintf(display.line4, sizeof(display.line4), "[No]   Yes");
+        RuntimeManager_SetDisplay(&display);
+      }
+      return;
+    }
     /* 进入用户列表 */
     g_runtime.user_list_count = StorageManager_GetUserCount();
     if (g_runtime.user_list_count == 0U)
@@ -730,6 +776,33 @@ static void RuntimeManager_HandleUserList(KeyEventTypeDef key_event)
     return;
   }
 
+  /* 短按 OK 弹出删除确认对话框 */
+  if (key_event == KEY_EVENT_OK_SHORT)
+  {
+    if (g_runtime.user_list_count == 0U)
+    {
+      return;
+    }
+    g_runtime.user_list_pending_delete_index = g_runtime.user_list_index;
+    g_runtime.user_list_confirm_choice = 0U; /* 默认 No */
+    g_runtime.mode = RUNTIME_MODE_USER_LIST_CONFIRM;
+
+    StorageUserTypeDef user;
+    if (StorageManager_GetUserByIndex(g_runtime.user_list_pending_delete_index, &user))
+    {
+      AttendanceDisplayModelTypeDef display;
+      memset(&display, 0, sizeof(display));
+      display.page = OLED_PAGE_IDLE;
+      display.hold_ms = 0U;
+      snprintf(display.line1, sizeof(display.line1), "Delete User?");
+      snprintf(display.line2, sizeof(display.line2), "Name:%s", user.name);
+      snprintf(display.line3, sizeof(display.line3), "No:%s", user.employee_no);
+      snprintf(display.line4, sizeof(display.line4), "[No]   Yes");
+      RuntimeManager_SetDisplay(&display);
+    }
+    return;
+  }
+
   if (key_event == KEY_EVENT_UP_SHORT)
   {
     if (g_runtime.user_list_count == 0U) return;
@@ -764,4 +837,135 @@ static void RuntimeManager_HandleUserList(KeyEventTypeDef key_event)
       RuntimeManager_SetDisplay(&display);
     }
   }
+}
+
+/**
+ * @brief 处理用户删除确认界面输入
+ */
+static void RuntimeManager_HandleUserListConfirm(KeyEventTypeDef key_event)
+{
+  /* 长按取消 */
+  if (key_event == KEY_EVENT_OK_LONG)
+  {
+    g_runtime.mode = RUNTIME_MODE_USER_LIST;
+    /* 恢复显示当前用户 */
+    StorageUserTypeDef user;
+    if (StorageManager_GetUserByIndex(g_runtime.user_list_index, &user))
+    {
+      AttendanceDisplayModelTypeDef display;
+      memset(&display, 0, sizeof(display));
+      display.page = OLED_PAGE_IDLE;
+      display.hold_ms = 0U;
+      snprintf(display.line1, sizeof(display.line1), "User %lu/%lu", (unsigned long)(g_runtime.user_list_index+1), (unsigned long)g_runtime.user_list_count);
+      snprintf(display.line2, sizeof(display.line2), "Name:%s", user.name);
+      snprintf(display.line3, sizeof(display.line3), "No:%s", user.employee_no);
+      snprintf(display.line4, sizeof(display.line4), "UID:%02X%02X%02X%02X F:%u", user.rc522_uid[0], user.rc522_uid[1], user.rc522_uid[2], user.rc522_uid[3], (unsigned)user.finger_id);
+      RuntimeManager_SetDisplay(&display);
+    }
+    return;
+  }
+
+  /* 切换选择 Yes/No */
+  if (key_event == KEY_EVENT_UP_SHORT || key_event == KEY_EVENT_DOWN_SHORT)
+  {
+    g_runtime.user_list_confirm_choice = g_runtime.user_list_confirm_choice ? 0U : 1U;
+  }
+
+  /* 更新确认界面显示 */
+  {
+    StorageUserTypeDef user;
+    if (StorageManager_GetUserByIndex(g_runtime.user_list_pending_delete_index, &user))
+    {
+      AttendanceDisplayModelTypeDef display;
+      memset(&display, 0, sizeof(display));
+      display.page = OLED_PAGE_IDLE;
+      display.hold_ms = 0U;
+      snprintf(display.line1, sizeof(display.line1), "Delete User?");
+      snprintf(display.line2, sizeof(display.line2), "Name:%s", user.name);
+      snprintf(display.line3, sizeof(display.line3), "No:%s", user.employee_no);
+      if (g_runtime.user_list_confirm_choice == 0U)
+      {
+        snprintf(display.line4, sizeof(display.line4), "[No]   Yes");
+      }
+      else
+      {
+        snprintf(display.line4, sizeof(display.line4), "No   [Yes]");
+      }
+      RuntimeManager_SetDisplay(&display);
+    }
+  }
+
+  /* 确认删除 */
+  if (key_event == KEY_EVENT_OK_SHORT)
+  {
+    if (g_runtime.user_list_confirm_choice == 1U)
+    {
+      StorageUserTypeDef cur;
+      if (StorageManager_GetUserByIndex(g_runtime.user_list_pending_delete_index, &cur))
+      {
+        (void)App_Zw101_DeleteUser(ZW101_DEFAULT_PASSWORD, cur.finger_id);
+        if (StorageManager_DeleteUser(cur.user_id))
+        {
+          g_runtime.user_list_count = StorageManager_GetUserCount();
+          if (g_runtime.user_list_count == 0U)
+          {
+            g_runtime.mode = RUNTIME_MODE_IDLE;
+            RuntimeManager_ShowIdle();
+            return;
+          }
+          /* 调整索引到有效范围 */
+          if (g_runtime.user_list_index >= g_runtime.user_list_count)
+          {
+            g_runtime.user_list_index = g_runtime.user_list_count - 1U;
+          }
+        }
+      }
+    }
+
+    /* 无论是否删除，返回用户列表页面并刷新 */
+    g_runtime.mode = RUNTIME_MODE_USER_LIST;
+    StorageUserTypeDef user2;
+    if (StorageManager_GetUserByIndex(g_runtime.user_list_index, &user2))
+    {
+      AttendanceDisplayModelTypeDef display;
+      memset(&display, 0, sizeof(display));
+      display.page = OLED_PAGE_IDLE;
+      display.hold_ms = 0U;
+      snprintf(display.line1, sizeof(display.line1), "User %lu/%lu", (unsigned long)(g_runtime.user_list_index+1), (unsigned long)g_runtime.user_list_count);
+      snprintf(display.line2, sizeof(display.line2), "Name:%s", user2.name);
+      snprintf(display.line3, sizeof(display.line3), "No:%s", user2.employee_no);
+      snprintf(display.line4, sizeof(display.line4), "UID:%02X%02X%02X%02X F:%u", user2.rc522_uid[0], user2.rc522_uid[1], user2.rc522_uid[2], user2.rc522_uid[3], (unsigned)user2.finger_id);
+      RuntimeManager_SetDisplay(&display);
+    }
+  }
+}
+
+uint8_t RuntimeManager_RemoteCheckInByUserId(uint32_t user_id)
+{
+  StorageUserTypeDef user;
+  AttendanceResultTypeDef result;
+  AttendanceScheduleTypeDef schedule;
+
+  if (StorageManager_FindUserById(user_id, &user) == 0U)
+  {
+    RuntimeManager_PublishEvent(NULL, ATTENDANCE_VERIFY_REMOTE, ATTENDANCE_RESULT_UNKNOWN_USER);
+    COM_DEBUG("Remote check-in failed: user_id=%lu not found", (unsigned long)user_id);
+    return 0U;
+  }
+
+  if (Attendance_GetCurrentDateTime(&g_runtime.now) == 0U)
+  {
+    RuntimeManager_PublishEvent(&user, ATTENDANCE_VERIFY_REMOTE, ATTENDANCE_RESULT_TIME_INVALID);
+    COM_DEBUG("Remote check-in failed: RTC invalid");
+    return 0U;
+  }
+
+  schedule = Attendance_GetSchedule();
+  result = Attendance_JudgeEvent(&schedule, &g_runtime.daily_state, &g_runtime.now);
+  RuntimeManager_PublishEvent(&user, ATTENDANCE_VERIFY_REMOTE, result);
+
+  COM_DEBUG("Remote check-in done: user_id=%lu result=%u",
+            (unsigned long)user_id,
+            (unsigned)result);
+  return 1U;
 }
