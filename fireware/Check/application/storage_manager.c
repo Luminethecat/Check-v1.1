@@ -535,23 +535,50 @@ uint8_t StorageManager_SaveUserData(void *buffer, uint32_t buffer_size)
 
 uint32_t StorageManager_GetUserCount(void)
 {
-  return (uint32_t)g_storage_param.user_count;
+  uint32_t idx;
+  uint32_t count = 0U;
+
+  /* 直接统计当前有效用户，避免参数页计数与实际槽位状态不一致时把 UI 带偏。 */
+  for (idx = 0U; idx < STORAGE_MAX_USER_COUNT; idx++)
+  {
+    if (g_storage_users[idx].valid == 1U)
+    {
+      count++;
+    }
+  }
+
+  return count;
 }
 
 uint8_t StorageManager_GetUserByIndex(uint32_t index, StorageUserTypeDef *user_out)
 {
-  if ((index >= STORAGE_MAX_USER_COUNT) || (user_out == NULL))
+  uint32_t slot;
+  uint32_t valid_index = 0U;
+
+  if (user_out == NULL)
   {
     return 0U;
   }
 
-  if (g_storage_users[index].valid != 1U)
+  /* 这里的 index 按“第几个有效用户”解释，而不是物理槽位号。
+   * 删除用户后即使中间出现空洞，UI 仍然可以顺序浏览有效用户。 */
+  for (slot = 0U; slot < STORAGE_MAX_USER_COUNT; slot++)
   {
-    return 0U;
+    if (g_storage_users[slot].valid != 1U)
+    {
+      continue;
+    }
+
+    if (valid_index == index)
+    {
+      *user_out = g_storage_users[slot];
+      return 1U;
+    }
+
+    valid_index++;
   }
 
-  *user_out = g_storage_users[index];
-  return 1U;
+  return 0U;
 }
 
 uint8_t StorageManager_DeleteUser(uint32_t user_id)
