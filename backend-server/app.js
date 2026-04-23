@@ -15,7 +15,7 @@ const CODESPACES_URL = CODESPACE_NAME ? `https://${CODESPACE_NAME}-${PORT}.app.g
 const SUPABASE_EDGE_URL = 'https://ufdwkrexvfceztrnuvrm.supabase.co/functions/v1/bright-handler';
 const SUPABASE_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVmZHdrcmV4dmZjZXp0cm51dnJtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDAzNTczNiwiZXhwIjoyMDg1NjExNzM2fQ.cm34oWvD0Oc8KP83uDE53R5Xcmcd34y4Xb-VzcvKz4g';
 
-const EMQX_BROKER = 'mqtts://mb300ee7.ala.cn-hangzhou.emqxsl.cn:8883';
+const EMQX_BROKER = 'mqtts://rf8b8361.ala.cn-hangzhou.emqxsl.cn:8883';
 const EMQX_USER = 'user';
 const EMQX_PWD = '123456';
 const EMQX_TOPIC_PREFIX = 'attendance/';
