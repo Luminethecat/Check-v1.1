@@ -8,7 +8,7 @@
 
 // ========== 严格对齐你的ESP协议定义 ==========
 #define FRAME_HEAD          0xAA    // 帧头
-#define FRAME_TAIL          0x55    // 帧尾
+#define FRAME_TAIL          0xCC    // 帧尾
 #define TYPE_BJ_TIME        0x01    // ESP→STM32：北京时间帧
 #define TYPE_CHECK_DATA     0x02    // STM32→ESP：打卡数据帧
 #define TYPE_TIME_REQ       0x03    // STM32→ESP：时间请求帧
@@ -16,6 +16,8 @@
 #define TYPE_REMOTE_CHECKIN 0x05    // ESP→STM32：远程打卡帧
 #define TYPE_RESTART_STM32  0x06    // ESP→STM32：STM32重启帧
 #define TYPE_SET_WORK_TIME  0x07    // ESP→STM32：打卡时间设置帧
+#define TYPE_USER_REGISTER  0x08    // STM32→ESP：用户注册帧
+#define TYPE_RESTART_ESP      0x09    // STM32→ESP：ESP8266重启帧
 #define FRAME_MAX_LEN       256     // 与ESP一致的缓冲区大小
 #define FRAME_BUF_LEN       FRAME_MAX_LEN
 #define CRC16_INIT_VAL      0xFFFF  // CRC16初始值

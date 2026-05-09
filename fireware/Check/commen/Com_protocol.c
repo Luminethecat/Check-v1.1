@@ -188,16 +188,16 @@ uint16_t Com_CRC16_Modbus_Table(uint8_t* data, uint8_t len)
 // 帧有效性校验（帧头/帧尾/CRC/长度）
 uint8_t CheckFrameValid(uint8_t *frame, uint8_t len)
 {
-    if (len < 7) return 0;  // 最小帧长度：头+类型+长度+CRC(2)+尾=7
+    if (len < 6) return 0;  // 最小帧长度：头+类型+长度+CRC(2)+尾=6，数据可为0字节
     if (frame[0] != FRAME_HEAD || frame[len-1] != FRAME_TAIL) return 0;
 
     uint8_t data_len = frame[2];
     if (data_len > FRAME_MAX_LEN - 6) return 0;
-    uint8_t actual_data_len = len - 6;  // 总长度 - 头-类型-长度-CRC(2)-尾
+    uint8_t actual_data_len = len - 6;  // 总长度 - 头-类型+长度-CRC(2)-尾
     if (actual_data_len != data_len) return 0;
 
     uint16_t crc_calc = CRC16_Modbus_Calc(&frame[3], data_len);
-    uint16_t crc_recv = (frame[3+data_len] << 8) | frame[4+data_len];
+    uint16_t crc_recv = (frame[3+data_len] << 8) | frame[3+data_len+1];
     return (crc_calc == crc_recv) ? 1 : 0;
 }
 
@@ -250,20 +250,46 @@ uint8_t Com_Frame_Pack(uint8_t *send_buf, FrameStruct_t *frame)
 // 发送帧到ESP01S（封装帧头/类型/CRC/帧尾）
 void SendFrameToESP(uint8_t type, uint8_t *data, uint8_t len)
 {
-    uint8_t temp_frame[FRAME_MAX_LEN] = {0};
-    FrameStruct_t frame;
+    // 创建临时帧结构体，避免潜在的内存问题
+    FrameStruct_t frame = {0};  // 完全初始化
     frame.frame_type = type;
     frame.data_len = len;
+    
+    // 确保数据长度不超过最大限制
+    if (frame.data_len > FRAME_MAX_LEN - 6) {
+        COM_DEBUG("数据长度超出限制: %d", len);
+        return;
+    }
+    
     if (frame.data_len > 0 && data != NULL)
     {
         memcpy(frame.data, data, len);
     }
+    
+    // 计算CRC
     frame.crc = Com_CRC16_Modbus_Table(frame.data, frame.data_len);
 
+    uint8_t temp_frame[FRAME_MAX_LEN] = {0};
     uint8_t pack_len = Com_Frame_Pack(temp_frame, &frame);
-    if (pack_len == 0 || pack_len > FRAME_MAX_LEN) return;
+    if (pack_len == 0 || pack_len > FRAME_MAX_LEN) {
+        COM_DEBUG("打包帧失败，pack_len=%d", pack_len);
+        return;
+    }
+    
+    COM_DEBUG("发送帧到ESP，类型:0x%02X, 总长度:%d, 数据长度:%d", type, pack_len, frame.data_len);
+    COM_DEBUG("发送帧内容: ");
+    for(int i = 0; i < pack_len && i < 32; i++) {
+        printf("%02X ", temp_frame[i]);
+    }
+    printf("\n");
 
-    HAL_UART_Transmit(&huart1, temp_frame, pack_len, 100);
+    HAL_StatusTypeDef ret = HAL_UART_Transmit(&huart1, temp_frame, pack_len, 1000);  // 增加超时时间
+    if(ret != HAL_OK) {
+        COM_DEBUG("UART发送失败，错误码:%d", ret);
+    }
+    else {
+        COM_DEBUG("UART发送成功，发送了%d字节", pack_len);
+    }
 }
 
 void Com_Protocol_Init(void)

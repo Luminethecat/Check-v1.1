@@ -361,20 +361,98 @@ const initMqtt = () => {
   
   mqttClient.on('message', async (topic, payload) => {
     try {
+      console.log('收到MQTT消息:', topic, payload.toString());
+
+      // 只处理 /data 主题
       if (!topic.endsWith('/data')) return;
+
       const data = JSON.parse(payload.toString());
-      if (data.frame_type !== 2 || !data.device_id || !data.user_id || !data.check_time) return;
-      
-      await supabaseRequest('att_add', {
-        device_id: data.device_id,
-        user_id: data.user_id,
-        check_time: data.check_time.replace(/\//g, '-'),
-        check_type_code: data.check_type_code || 0,
-        check_type_desc: data.check_type_desc || '正常打卡'
-      });
-      console.log(`MQTT消息入库成功：${data.device_id} - ${data.user_id}`);
+      console.log('解析后的数据:', JSON.stringify(data, null, 2));
+
+      // 处理打卡数据（frame_type = 2）
+      if (data.frame_type === 2 && data.device_id && data.user_id && data.check_time) {
+        console.log('=== 处理打卡数据 ===');
+        console.log('设备ID:', data.device_id);
+        console.log('用户ID:', data.user_id);
+        console.log('打卡时间:', data.check_time);
+        console.log('打卡类型码:', data.check_type_code);
+        console.log('打卡类型描述:', data.check_type_desc);
+
+        await supabaseRequest('att_add', {
+          device_id: data.device_id,
+          user_id: data.user_id,
+          check_time: data.check_time,  // 直接使用原有格式，不做替换
+          check_type_code: data.check_type_code || 0,
+          check_type_desc: data.check_type_desc || '正常打卡'
+        });
+        console.log('✅ 打卡数据入库成功');
+      }
+
+      // 处理用户信息（frame_type = 4）
+      else if (data.frame_type === 4) {
+        console.log('=== 处理用户信息 ===');
+
+        let userId, employeeNo, name, rfidUid, fingerId;
+
+        // 支持两种格式：
+        // 新格式：结构化字段 (user_id, employee_no, name, rfid_uid, finger_id)
+        // 旧格式：pipe分隔字符串 data ("user_id|employee_no|name|rfid_uid|finger_id")
+        if (data.user_id !== undefined) {
+          // 新结构化格式（ESP frame2Json 新版）
+          userId = data.user_id;
+          employeeNo = data.employee_no || '';
+          name = data.name || '';
+          rfidUid = data.rfid_uid || '';
+          fingerId = data.finger_id !== undefined ? data.finger_id : 0;
+          console.log('新格式字段: user_id=%s, name=%s', userId, name);
+        } else if (data.data) {
+          // 旧格式，向后兼容
+          console.log('旧格式数据:', data.data);
+          const parts = data.data.split('|');
+          console.log('分割后的用户信息:', parts);
+          if (parts.length >= 5) {
+            userId = parseInt(parts[0]);
+            employeeNo = parts[1];
+            name = parts[2];
+            rfidUid = parts[3];
+            fingerId = parseInt(parts[4]);
+            console.log('旧格式解析: user_id=%s, name=%s', userId, name);
+          } else {
+            console.error('❌ 用户信息旧格式解析失败:', parts);
+            return;
+          }
+        } else {
+          console.log('忽略的消息: 无用户信息字段');
+          return;
+        }
+
+        console.log('用户ID:', userId);
+        console.log('姓名:', name);
+        console.log('工号:', employeeNo);
+        console.log('RFID卡号:', rfidUid);
+        console.log('指纹ID:', fingerId);
+
+        const result = await supabaseRequest('emp_add', {
+          user_id: parseInt(userId),
+          employee_no: employeeNo,
+          name: name,
+          rfid_uid: rfidUid,
+          finger_id: parseInt(fingerId)
+        });
+        if (result.code === 200) {
+          console.log('✅ 用户信息入库成功:', name, '(', userId, ')');
+        } else {
+          console.error('❌ 用户信息入库失败:', result.msg || result.error || '未知错误');
+        }
+      }
+
+      else {
+        console.log('忽略的消息类型:', data);
+      }
+
     } catch (err) {
-      console.log('MQTT消息解析失败：', err.message);
+      console.log('❌ MQTT消息处理失败：', err.message);
+      console.log('错误堆栈:', err.stack);
     }
   });
   

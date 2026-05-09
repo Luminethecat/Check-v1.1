@@ -6,6 +6,7 @@
 #include "key_input.h"
 #include "storage_manager.h"
 #include "Com_protocol.h"
+#include "oled_ssd1306.h"
 #include "string.h"
 #include "audio_dac_app.h"   // 或者 "dac_sound.h"，根据你实际文件名
 /*
@@ -125,9 +126,20 @@ static void RuntimeManager_SetDisplay(const AttendanceDisplayModelTypeDef *displ
  */
 static void RuntimeManager_ShowIdle(void)
 {
-  // 获取当前RTC/网络同步时间，失败直接退出
+  // 获取当前RTC/网络同步时间
   if (Attendance_GetCurrentDateTime(&g_runtime.now) == 0U)
   {
+    /* RTC 未同步时显示等待界面，不退出 */
+    AttendanceDisplayModelTypeDef display;
+    memset(&display, 0, sizeof(display));
+    display.page = OLED_PAGE_IDLE;
+    snprintf(display.line1, sizeof(display.line1), "SYNC WAIT");
+    snprintf(display.line2, sizeof(display.line2), "RTC not ready");
+    snprintf(display.line3, sizeof(display.line3), "Wait for NTP...");
+    snprintf(display.line4, sizeof(display.line4), "TODAY:%u", g_runtime.today_count);
+    g_runtime.display = display;
+    g_runtime.display.hold_ms = 0U;
+    Oled_RenderDisplayModel(&g_runtime.display);
     return;
   }
 
@@ -364,8 +376,8 @@ static void RuntimeManager_HandleEnrollMode(KeyEventTypeDef key_event)
   /********** 第一步：等待刷卡 **********/
   if (g_runtime.mode == RUNTIME_MODE_ENROLL_WAIT_CARD)
   {
-    // 长按OK键：退出录入，返回待机
-    if (key_event == KEY_EVENT_OK_LONG)
+    // 短按OK键：退出录入，返回待机
+    if (key_event == KEY_EVENT_OK_SHORT)
     {
       g_runtime.mode = RUNTIME_MODE_IDLE;
       RuntimeManager_ShowIdle();
@@ -394,8 +406,8 @@ static void RuntimeManager_HandleEnrollMode(KeyEventTypeDef key_event)
   /********** 第二步：等待录入指纹并保存用户 **********/
   if (g_runtime.mode == RUNTIME_MODE_ENROLL_WAIT_FINGER)
   {
-    // 长按OK退出录入
-    if (key_event == KEY_EVENT_OK_LONG)
+    // 短按OK退出录入
+    if (key_event == KEY_EVENT_OK_SHORT)
     {
       g_runtime.mode = RUNTIME_MODE_IDLE;
       RuntimeManager_ShowIdle();
@@ -438,20 +450,30 @@ static void RuntimeManager_HandleEnrollMode(KeyEventTypeDef key_event)
         return;
       }
 
+      COM_DEBUG("开始执行指纹录入，finger_id=%u", next_finger_id);
       ZW101_StatusTypeDef st = App_Zw101_EnrollUser(ZW101_DEFAULT_PASSWORD, next_finger_id);
+      COM_DEBUG("指纹录入完成，状态=%d", st);
+      
       if (st != ZW101_OK)
       {
+        COM_DEBUG("指纹录入失败，状态=%d，跳过用户创建", st);
         /* enroll failed, handled below with UI */
       }
       else
       {
+        COM_DEBUG("指纹录入成功，开始创建用户");
         if (StorageManager_CreateUser(g_runtime.pending_card_uid, next_finger_id, &user) == 0U)
         {
           COM_DEBUG("StorageManager_CreateUser failed for finger_id=%u", next_finger_id);
           st = ZW101_ERROR; // use st to indicate failure for common handling
         }
+        else
+        {
+          COM_DEBUG("用户创建成功，user_id=%u", user.user_id);
+        }
       }
 
+      COM_DEBUG("最终状态检查: st=%d", st);
       if (st == ZW101_OK)
       {
       AttendanceEventTypeDef event;
@@ -484,6 +506,8 @@ static void RuntimeManager_HandleEnrollMode(KeyEventTypeDef key_event)
       RuntimeManager_SetDisplay(&display);
       // 播放录入成功语音
       DAC_Sound_Success();   // 录入成功用成功音
+      
+      COM_DEBUG("用户注册成功，准备发送到ESP");
       // 上报新增用户到 ESP/WiFi 模块，方便小程序同步人员信息
       {
         char payload[80];
@@ -493,8 +517,22 @@ static void RuntimeManager_HandleEnrollMode(KeyEventTypeDef key_event)
                            user.name,
                            user.rc522_uid[0], user.rc522_uid[1], user.rc522_uid[2], user.rc522_uid[3],
                            (unsigned int)user.finger_id);
-        if (len > 0 && len < (int)sizeof(payload)) {
-          SendFrameToESP(TYPE_ADD_USER, (uint8_t*)payload, (uint8_t)len);
+        
+        // 确保字符串结束符存在，计算实际长度
+        if(len >= (int)sizeof(payload)) {
+          len = sizeof(payload) - 1;  // 确保不越界
+          payload[len] = '\0';
+        }
+        
+        // 再次计算有效长度（不包含末尾的null字符）
+        len = strlen(payload);
+        
+        COM_DEBUG("构建用户注册消息: '%s', 长度: %d", payload, len);
+        if (len > 0 && len < 250) {  // 使用合理上限
+          COM_DEBUG("发送用户注册消息: '%s'", payload);
+          SendFrameToESP(TYPE_USER_REGISTER, (uint8_t*)payload, (uint8_t)len);
+        } else {
+          COM_DEBUG("用户注册消息长度异常: %d，跳过发送", len);
         }
       }
       // 录入完成切回待机
@@ -663,7 +701,7 @@ void RuntimeManager_CheckTaskStep(void)
     return;
   }
 
-  if (key_event == KEY_EVENT_OK_LONG)
+  if (key_event == KEY_EVENT_UP_SHORT)
   {
     g_runtime.mode = RUNTIME_MODE_ENROLL_WAIT_CARD;
     memset(g_runtime.pending_card_uid, 0, sizeof(g_runtime.pending_card_uid));
@@ -673,10 +711,30 @@ void RuntimeManager_CheckTaskStep(void)
     snprintf(g_runtime.display.line1, sizeof(g_runtime.display.line1), "Enroll Mode");
     snprintf(g_runtime.display.line2, sizeof(g_runtime.display.line2), "Step1 Swipe Card");
     snprintf(g_runtime.display.line3, sizeof(g_runtime.display.line3), "Then Finger");
-    snprintf(g_runtime.display.line4, sizeof(g_runtime.display.line4), "Hold OK to Exit");
+    snprintf(g_runtime.display.line4, sizeof(g_runtime.display.line4), "Press OK:Exit");
     return;
   }
 
+  // 短按DOWN键：重启ESP8266
+  if (key_event == KEY_EVENT_DOWN_SHORT)
+  {
+    COM_DEBUG("待机模式下检测到DOWN按键，重启ESP8266");
+    
+    // 发送重启ESP8266命令
+    SendFrameToESP(TYPE_RESTART_ESP, NULL, 0U);
+    
+    // 显示重启提示
+    AttendanceDisplayModelTypeDef display;
+    memset(&display, 0, sizeof(display));
+    display.page = OLED_PAGE_IDLE;
+    display.hold_ms = 2000U;
+    snprintf(display.line1, sizeof(display.line1), "Restarting ESP...");
+    snprintf(display.line2, sizeof(display.line2), "Please Wait");
+    RuntimeManager_SetDisplay(&display);
+    
+    return;
+  }
+  
   // 待机常态：轮询刷卡 + 指纹检测
   RuntimeManager_PollCard();
   RuntimeManager_PollFinger();

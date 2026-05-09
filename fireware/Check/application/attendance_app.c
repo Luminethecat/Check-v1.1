@@ -4,6 +4,7 @@
 #include "rtc.h"
 #include "stdio.h"
 #include "string.h"
+#include "Com_debug.h"
 
 static AttendanceScheduleTypeDef g_schedule = {540U, 1080U, 900U};
 static uint8_t g_rtc_valid = 0U;
@@ -82,7 +83,7 @@ static const char *Attendance_ResultText(AttendanceResultTypeDef result)
 
 static uint8_t Attendance_ToBcdDigit(uint16_t value)
 {
-  return (uint8_t)((value % 10U));
+  return (uint8_t)('0' + (value % 10U));
 }
 
 static void Attendance_FormatEspTime(const AttendanceDateTimeTypeDef *timestamp,
@@ -139,7 +140,9 @@ void Attendance_Init(void)
 
 void Attendance_RequestTimeSync(void)
 {
+  COM_DEBUG("发送时间同步请求到ESP");
   SendFrameToESP(TYPE_TIME_REQ, NULL, 0U);
+  COM_DEBUG("时间同步请求发送完成");
 }
 
 void Attendance_SetRtcValid(uint8_t valid)
@@ -216,6 +219,11 @@ uint8_t Attendance_GetCurrentDateTime(AttendanceDateTimeTypeDef *now)
   {
     return 0U;
   }
+  /* STM32 RTC 影子寄存器机制：读取 Date 后锁定 Time，需要再读一次 Time 解锁 */
+  if (HAL_RTC_GetTime(&hrtc, &rtc_time, RTC_FORMAT_BIN) != HAL_OK)
+  {
+    return 0U;
+  }
 
   now->year = (uint16_t)(2000U + rtc_date.Year);
   now->month = rtc_date.Month;
@@ -224,6 +232,17 @@ uint8_t Attendance_GetCurrentDateTime(AttendanceDateTimeTypeDef *now)
   now->minute = rtc_time.Minutes;
   now->second = rtc_time.Seconds;
   now->weekday = rtc_date.WeekDay;
+
+  /* RTC 合理性校验：时间未同步时防止上传乱码 */
+  if (now->year < 2024U ||
+      now->month < 1U || now->month > 12U ||
+      now->day < 1U || now->day > 31U ||
+      now->hour > 23U || now->minute > 59U || now->second > 59U)
+  {
+    Attendance_SetRtcValid(0U);
+    return 0U;
+  }
+
   return 1U;
 }
 
