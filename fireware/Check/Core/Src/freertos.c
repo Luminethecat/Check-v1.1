@@ -38,27 +38,11 @@ void ZW101TestTask(void *argument);
 #endif
 /* -------------------------- FreeRTOS 任务句柄定义 -------------------------- */
 
-osThreadId_t Mqtt_ReportHandle;
-const osThreadAttr_t Mqtt_Report_attributes =
-{
-  .name = "Mqtt_Report",
-  .stack_size = 512 * 4,
-  .priority = osPriorityNormal,
-};
-
-osThreadId_t DebugHandle;
-const osThreadAttr_t Debug_attributes =
-{
-  .name = "Debug",
-  .stack_size = 256 * 4,
-  .priority = osPriorityLow1,
-};
-
 osThreadId_t UARTHandle;
 const osThreadAttr_t UART_attributes =
 {
   .name = "UART",
-  .stack_size = 1024 * 4,
+  .stack_size = 512 * 4,
   .priority = osPriorityHigh,
 };
 
@@ -141,8 +125,6 @@ void DisplayTask(void *argument);
 void CheckTask(void *argument);
 void AudioPlayTask(void *argument);
 void UARTTask(void *argument);
-void DebugTask(void *argument);
-void Mqtt_ReportTask(void *argument);
 void SystemCheckTask(void *argument);
 void RFIDTestTask(void *argument);
 
@@ -209,18 +191,6 @@ osThreadNew(
   if (frame_queue == NULL) {
     frame_queue = xQueueCreate(4, FRAME_MAX_LEN + 1); /* msg[0]=len, msg[1..] = frame */
   }
-
-  DebugHandle =
-  osThreadNew(
-      DebugTask,
-      NULL,
-      &Debug_attributes);
-
-  Mqtt_ReportHandle =
-  osThreadNew(
-      Mqtt_ReportTask,
-      NULL,
-      &Mqtt_Report_attributes);
 
   // 创建系统自检任务
   SystemCheckHandle =
@@ -329,45 +299,6 @@ void DisplayTask(void *argument)
     /* Oled_RenderDisplayModel 最终会调用 Oled_UpdateScreen，驱动层负责互斥保护 */
     Oled_RenderDisplayModel(&display_snapshot);
     osDelay(100);
-    // if(g_test_display.page == OLED_PAGE_IDLE)
-    // {
-    //   HAL_RTC_GetTime(
-    //         &hrtc,
-    //         &rtc_time,
-    //         RTC_FORMAT_BIN);
-
-    //   HAL_RTC_GetDate(
-    //         &hrtc,
-    //         &rtc_date,
-    //         RTC_FORMAT_BIN);
-
-    //   TestDisplay_SetRtc(
-    //         &rtc_time,
-    //         &rtc_date);
-    // }
-
-    // if(g_display_timeout > 0)
-    // {
-    //   g_display_timeout--;
-
-    //   if(g_display_timeout == 0)
-    //   {
-    //     g_test_display.page =
-    //         OLED_PAGE_IDLE;
-    //   }
-    // }
-
-    // if(osSemaphoreAcquire(
-    //       mutex_i2cHandle,
-    //       pdMS_TO_TICKS(50))
-    //       == osOK)
-    // {
-    //   Oled_RenderDisplayModel(
-    //         &g_test_display);
-
-    //   osSemaphoreRelease(
-    //         mutex_i2cHandle);
-    // }
 
   }
 
@@ -377,134 +308,14 @@ void DisplayTask(void *argument)
 /* ==================== Check Task ==================== */
 void CheckTask(void *argument)
 {
-  // KeyEventTypeDef key_event;
-  // static uint8_t key_lock = 0;
-
-  // RC522_CardInfoTypeDef card;
-  // char uid_str[32];
-  // ZW101_SearchResultTypeDef finger_res;
-  // ZW101_StatusTypeDef st;
-
   COM_DEBUG("Check Task Start");
-
-  // RC522_Init();
-  // ZW101_Init();
- // ZW101_VerifyPassword(0x00000000); // 必须
 
   for(;;)
   {
     RuntimeManager_CheckTaskStep();
     osDelay(50);
-    // key_event = KeyInput_Scan();
-
-    // if(key_event != KEY_EVENT_NONE && key_lock == 0)
-    // {
-    //   key_lock = 1;
-
-    //   // ==================== 长按OK：注册指纹 ====================
-    //   if(key_event == KEY_EVENT_OK_LONG)
-    //   {
-    //     COM_DEBUG("开始注册指纹 ID1");
-
-    //     snprintf(g_test_display.line1,32,"PUT FINGER 1");
-    //     snprintf(g_test_display.line2,32,"PRESS & HOLD");
-    //     g_display_timeout = 50;
-
-    //     // 第一次采集
-    //     st = ZW101_CollectImage();
-    //     if(st != ZW101_OK) goto enroll_fail;
-
-    //     st = ZW101_GenerateChar(1);
-    //     if(st != ZW101_OK) goto enroll_fail;
-
-    //     // 提示抬手
-    //     snprintf(g_test_display.line1,32,"LIFT FINGER!");
-    //     osDelay(1000); // 必须等抬手
-
-    //     // 第二次采集
-    //     snprintf(g_test_display.line1,32,"PUT FINGER 2");
-    //     osDelay(500);
-
-    //     st = ZW101_CollectImage();
-    //     if(st != ZW101_OK) goto enroll_fail;
-
-    //     st = ZW101_GenerateChar(2);
-    //     if(st != ZW101_OK) goto enroll_fail;
-
-    //     // 生成模板
-    //     st = ZW101_CreateModel();
-    //     if(st != ZW101_OK) goto enroll_fail;
-
-    //     // 保存
-    //     st = ZW101_StoreModel(1, 1);
-    //     if(st == ZW101_OK)
-    //     {
-    //       COM_DEBUG("✅ 注册成功");
-    //       snprintf(g_test_display.line1,32,"ENROLL OK");
-    //       snprintf(g_test_display.line2,32,"ID:1");
-    //       uint8_t cmd = 2;
-    //       osMessageQueuePut(audioQueueHandle,&cmd,0,0);
-    //       goto enroll_end;
-    //     }
-
-    //   enroll_fail:
-    //     COM_DEBUG("❌ 注册失败 code:%d", st);
-    //     snprintf(g_test_display.line1,32,"ENROLL ERR");
-    //     snprintf(g_test_display.line2,32,"CODE:%d", st);
-    //     uint8_t cmd = 3;
-    //     osMessageQueuePut(audioQueueHandle,&cmd,0,0);
-
-    //   enroll_end:
-    //     g_display_timeout = 50;
-    //   }
-
-    //   // ==================== 短按OK：识别指纹 ====================
-    //   if(key_event == KEY_EVENT_OK_SHORT)
-    //   {
-    //     st = ZW101_Identify(&finger_res);
-
-    //     if(st == ZW101_OK)
-    //     {
-    //       COM_DEBUG("✅ 指纹匹配 ID:%d", finger_res.page_id);
-    //       snprintf(g_test_display.line1,32,"FINGER OK");
-    //       snprintf(g_test_display.line2,32,"ID:%d", finger_res.page_id);
-    //       uint8_t cmd = 2;
-    //       osMessageQueuePut(audioQueueHandle,&cmd,0,0);
-    //     }
-    //     else
-    //     {
-    //       COM_DEBUG("❌ 识别失败 code:%d", st);
-    //       snprintf(g_test_display.line1,32,"FINGER ERR");
-    //       snprintf(g_test_display.line2,32,"CODE:%d", st);
-    //       uint8_t cmd = 3;
-    //       osMessageQueuePut(audioQueueHandle,&cmd,0,0);
-    //     }
-    //     g_display_timeout = 50;
-    //   }
-    // }
-
-    // if(key_event == KEY_EVENT_NONE)
-    // {
-    //   key_lock = 0;
-    // }
-
-    // // 刷卡
-    // if(RC522_ReadCard(&card) == RC522_OK)
-    // {
-    //   sprintf(uid_str,"%02X %02X %02X %02X", card.uid[0],card.uid[1],card.uid[2],card.uid[3]);
-    //   snprintf(g_test_display.line1,32,"CARD OK");
-    //   snprintf(g_test_display.line2,32,uid_str);
-    //   g_display_timeout = 30;
-    //   uint8_t cmd = 2;
-    //   osMessageQueuePut(audioQueueHandle,&cmd,0,0);
-    //   osDelay(500);
-    // }
-
-    // osDelay(50);
   }
 }
-
-
 
 /* ==================== Audio Task ==================== */
 
@@ -657,85 +468,6 @@ void SystemCheckTask(void *argument)
   }
 }
 
-/* ==================== RFID测试任务 ==================== */
-void RFIDTestTask(void *argument)
-{
-  // RC522_CardInfoTypeDef card;
-  // uint32_t user_id;
-  // char card_uid_str[20];
-
-  // COM_DEBUG("RFID Test Task Start");
-
-  // // 等待系统自检完成
-  // osDelay(3000);
-
-  // RC522_Init();
-
-  for(;;)
-  {
-    // // 检测是否有卡片
-    // if(RC522_IsCardPresent() == RC522_OK)
-    // {
-    //   // 读取卡片
-    //   if(RC522_ReadCard(&card) == RC522_OK)
-    //   {
-    //     // 转换UID为字符串
-    //     sprintf(card_uid_str, "%02X%02X%02X%02X",
-    //             card.uid[0], card.uid[1], card.uid[2], card.uid[3]);
-
-    //     COM_DEBUG("Card detected: %s", card_uid_str);
-
-    //     // 通过RFID查找用户
-    //     user_id = UserDB_IdentifyByRFID(card.uid);
-
-    //     if(user_id != 0)
-    //     {
-    //       UserTypeDef* user = UserDB_GetUser(user_id);
-    //       if(user != NULL)
-    //       {
-    //         COM_DEBUG("User found: %s (%s)", user->name, user->employee_no);
-
-    //         // 显示识别结果
-    //         Oled_Clear();
-    //         Oled_DrawString(0, 0, "CARD OK");
-    //         Oled_DrawString(0, 2, user->name);
-    //         Oled_DrawString(0, 4, user->employee_no);
-    //         Oled_DrawString(0, 6, card_uid_str);
-    //       }
-    //     }
-    //     else
-    //     {
-    //       COM_DEBUG("Unknown card: %s", card_uid_str);
-
-    //       // 显示未识别卡片
-    //       Oled_Clear();
-    //       Oled_DrawString(0, 0, "UNKNOWN CARD");
-    //       Oled_DrawString(0, 2, card_uid_str);
-    //       Oled_DrawString(0, 4, "Please register");
-    //     }
-    //   }
-    // }
-
-    osDelay(10);  // 500ms检测一次
-  }
-}
-
-void DebugTask(void *argument)
-{
-  for(;;)
-  {
-
-  osDelay(1);
-}
-}
-
-void Mqtt_ReportTask(void *argument)
-{
-  for(;;)
-  {
-    osDelay(1);
-  }
-}
 
 void UARTTask(void *argument)
 {

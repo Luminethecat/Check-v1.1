@@ -74,7 +74,13 @@ void Error_Handler(void);
 #define RC522_RST_GPIO_Port GPIOC
 
 /* USER CODE BEGIN Private defines */
-
+/* USER CODE BEGIN Private defines */
+// W25Q32测试宏定义
+#define ENABLE_W25Q32_TEST 1
+extern void Mute_Init(void);
+extern void Mute_Enable(void);
+extern void Mute_Disable(void);
+/* USER CODE END Private defines */
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

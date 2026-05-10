@@ -40,9 +40,10 @@ void MX_TIM6_Init(void)
 
   /* USER CODE END TIM6_Init 1 */
   htim6.Instance = TIM6;
-  htim6.Init.Prescaler = 0;
+  // 配置为8000Hz采样率: 72MHz/(71+1)/8000 = 8000Hz
+  htim6.Init.Prescaler = 71;  // 72MHz/72 = 1MHz
   htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim6.Init.Period = 65535;
+  htim6.Init.Period = 124;   // 1MHz/125 = 8000Hz
   htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
   {

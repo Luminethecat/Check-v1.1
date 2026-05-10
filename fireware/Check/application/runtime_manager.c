@@ -9,6 +9,9 @@
 #include "oled_ssd1306.h"
 #include "string.h"
 #include "audio_dac_app.h"   // 或者 "dac_sound.h"，根据你实际文件名
+#include "audio_flash_storage.h"  // 包含AudioFlashStorage_PlayPrompt函数
+
+
 /*
  * 模块说明：
  * runtime_manager 考勤机运行时状态机管理层
@@ -21,6 +24,23 @@
  * 6. RTC时间周期同步、跨天状态自动清零
  */
 
+// 用户每日打卡状态结构
+typedef struct
+{
+  uint32_t user_id;                    // 用户ID
+  uint16_t ymd;                        // 年月日编码
+  uint8_t has_on_duty;                 // 是否已上班打卡
+  uint8_t has_off_duty;                // 是否已下班打卡
+} UserDailyStateTypeDef;
+
+// 最大用户数量
+#define MAX_USERS 50
+#define MAX_USER_DAILY_STATES MAX_USERS
+
+// 全局用户每日状态数组
+static UserDailyStateTypeDef g_user_daily_states[MAX_USER_DAILY_STATES];
+
+ 
 // 指纹模块ZW101 通讯默认密码
 #define ZW101_DEFAULT_PASSWORD            0U
 // 待机调试日志打印周期 1000ms
@@ -74,31 +94,135 @@ typedef struct
 static RuntimeContextTypeDef g_runtime;
 static void RuntimeManager_HandleUserList(KeyEventTypeDef key_event);
 static void RuntimeManager_HandleUserListConfirm(KeyEventTypeDef key_event);
+
+
+// 查找指定用户的每日状态
+static UserDailyStateTypeDef* FindUserDailyState(uint32_t user_id) {
+    for(int i = 0; i < MAX_USER_DAILY_STATES; i++) {
+        if(g_user_daily_states[i].user_id == user_id && 
+           g_user_daily_states[i].ymd == g_runtime.daily_state.ymd) {
+            return &g_user_daily_states[i];
+        }
+    }
+    return NULL;
+}
+
+// 获取空闲的用户状态槽位
+static UserDailyStateTypeDef* GetFreeUserDailyStateSlot() {
+    for(int i = 0; i < MAX_USER_DAILY_STATES; i++) {
+        if(g_user_daily_states[i].user_id == 0 || 
+           g_user_daily_states[i].ymd != g_runtime.daily_state.ymd) {
+            // 如果是新的一天，重置该槽位
+            if(g_user_daily_states[i].ymd != g_runtime.daily_state.ymd) {
+                memset(&g_user_daily_states[i], 0, sizeof(UserDailyStateTypeDef));
+            }
+            return &g_user_daily_states[i];
+        }
+    }
+    return NULL;  // 没有可用槽位
+}
+
+// 获取或创建用户每日状态
+// 确保这个函数正确工作
+static UserDailyStateTypeDef* GetUserDailyStateOrCreate(uint32_t user_id) {
+    UserDailyStateTypeDef* state = FindUserDailyState(user_id);
+    if(state == NULL) {
+        state = GetFreeUserDailyStateSlot();
+        if(state != NULL) {
+            state->user_id = user_id;
+            // 关键修复：使用当前日期而不是全局状态的日期
+            if(g_runtime.daily_state.ymd == 0) {
+                // 如果全局日期还没初始化，先获取当前日期
+                AttendanceDateTimeTypeDef temp_time;
+                if(Attendance_GetCurrentDateTime(&temp_time)) {
+                    state->ymd = (uint16_t)(((temp_time.month & 0x0FU) << 12U) | 
+                                            ((temp_time.day & 0x1FU) << 7U) | 
+                                            (temp_time.year & 0x7FU));
+                } else {
+                    state->ymd = 0; // 默认值
+                }
+            } else {
+                state->ymd = g_runtime.daily_state.ymd;  // 使用已初始化的全局日期
+            }
+            state->has_on_duty = 0;
+            state->has_off_duty = 0;
+            COM_DEBUG("为用户 %lu 创建新的状态记录，日期: %04X\r\n", user_id, state->ymd);
+        }
+    } else {
+        // 检查是否是新一天，如果是则重置状态
+        uint16_t current_ymd;
+        AttendanceDateTimeTypeDef temp_time;
+        if(Attendance_GetCurrentDateTime(&temp_time)) {
+            current_ymd = (uint16_t)(((temp_time.month & 0x0FU) << 12U) | 
+                                    ((temp_time.day & 0x1FU) << 7U) | 
+                                    (temp_time.year & 0x7FU));
+            
+            if(state->ymd != current_ymd) {
+                state->ymd = current_ymd;
+                state->has_on_duty = 0;
+                state->has_off_duty = 0;
+                COM_DEBUG("用户 %lu 状态已重置为新一天，日期: %04X\r\n", user_id, current_ymd);
+            }
+        }
+    }
+    return state;
+}
 /**
  * @brief 根据考勤结果播放对应提示音
  * @param result 考勤结果枚举
  */
+ // 在 runtime_manager.c 中添加一个全局变量来跟踪音频播放状态
+static volatile uint8_t g_audio_playing = 0;  // 音频播放状态标志
+// 修改后的播放函数
 static void RuntimeManager_PlayResultSound(AttendanceResultTypeDef result)
 {
+  // 设置音频播放状态标志
+  g_audio_playing = 1;
+  
+  // 根据结果选择音频文件
+  const char* audio_file = NULL;
   switch (result)
   {
     case ATTENDANCE_RESULT_ON_DUTY_OK:    // 上班打卡成功
     case ATTENDANCE_RESULT_OFF_DUTY_OK:   // 下班打卡成功
-      DAC_Sound_Success();                // 成功音
+      audio_file = "check_ok.bin";
       break;
 
     case ATTENDANCE_RESULT_LATE:          // 迟到
-      DAC_Sound_Error();                  // 错误音（可用长音代替）
+      audio_file = "late.bin";
       break;
 
     case ATTENDANCE_RESULT_EARLY:         // 早退
-      DAC_Sound_Error();                  // 同样用错误音
+      audio_file = "early.bin";
       break;
 
-    default:                              // 未知用户/时间非法/其他错误
-      DAC_Sound_Error();                  // 错误音
+    case ATTENDANCE_RESULT_UNKNOWN:       // 未知用户
+    case ATTENDANCE_RESULT_UNKNOWN_USER:  // 未知用户
+      audio_file = "unknown.bin";
       break;
+
+    case ATTENDANCE_RESULT_REPEAT_ON_DUTY:    // 重复上班打卡
+    case ATTENDANCE_RESULT_REPEAT_OFF_DUTY:   // 重复下班打卡
+      audio_file = "repeat.bin";
+      break;
+
+    case ATTENDANCE_RESULT_TIME_INVALID:      // 时间无效
+      audio_file = "check_fail.bin";                      // 播放"其他错误"音频
+      break;
+
+    default:                              
+      // 其他未处理的情况也播放错误音
+      DAC_Sound_Error();                 // 播放"其他错误"音频
+      g_audio_playing = 0;  // 立即重置标志
+      return;
   }
+  
+  // 异步播放音频（如果支持的话）
+  // 如果当前音频系统是同步的，我们至少可以先更新UI，然后播放音频
+  AudioFlashStorage_PlayAudio(audio_file);
+  
+  // 注意：如果音频播放是同步的，我们仍需要在播放完成后重置标志
+  // 但理想情况下，应该在音频播放完成中断中重置此标志
 }
 
 /**
@@ -249,6 +373,7 @@ static void RuntimeManager_PublishEvent(const StorageUserTypeDef *storage_user,
  * @brief 刷卡打卡业务处理
  * @param uid 读取到的4字节卡片UID
  */
+// 修改 RuntimeManager_HandleCardCheckIn 函数，确保状态正确更新
 static void RuntimeManager_HandleCardCheckIn(const uint8_t uid[4])
 {
   StorageUserTypeDef user;
@@ -269,12 +394,55 @@ static void RuntimeManager_HandleCardCheckIn(const uint8_t uid[4])
     return;
   }
 
-  // 获取系统排班规则
+  // 获取用户特定的每日状态
+  UserDailyStateTypeDef* user_daily_state = GetUserDailyStateOrCreate(user.user_id);
+  
+  // 在判断前先创建临时状态结构
+  AttendanceDailyStateTypeDef temp_daily_state;
+  if(user_daily_state != NULL) {
+    temp_daily_state.ymd = user_daily_state->ymd;
+    temp_daily_state.has_on_duty = user_daily_state->has_on_duty;
+    temp_daily_state.has_off_duty = user_daily_state->has_off_duty;
+    COM_DEBUG("用户 %lu 当前状态: 上班=%d, 下班=%d, 日期=%04X\r\n", 
+              user.user_id, temp_daily_state.has_on_duty, temp_daily_state.has_off_duty, temp_daily_state.ymd);
+  } else {
+    // 如果无法获取用户状态，使用全局状态作为备用
+    temp_daily_state.ymd = g_runtime.daily_state.ymd;
+    temp_daily_state.has_on_duty = g_runtime.daily_state.has_on_duty;
+    temp_daily_state.has_off_duty = g_runtime.daily_state.has_off_duty;
+  }
+
   schedule = Attendance_GetSchedule();
-  // 核心考勤规则判断
-  result = Attendance_JudgeEvent(&schedule, &g_runtime.daily_state, &g_runtime.now);
-  // 统一事件分发
+  result = Attendance_JudgeEvent(&schedule, &temp_daily_state, &g_runtime.now);
+  
+  COM_DEBUG("打卡结果: %d\r\n", result);
+
+  // 时间无效的处理
+  if (result == ATTENDANCE_RESULT_TIME_INVALID)
+  {
+    RuntimeManager_PublishEvent(&user, ATTENDANCE_VERIFY_CARD, result);
+    return;
+  }
+
+  // 发布事件
   RuntimeManager_PublishEvent(&user, ATTENDANCE_VERIFY_CARD, result);
+
+  // 重要：只在有效打卡结果时更新用户状态
+  if (result == ATTENDANCE_RESULT_ON_DUTY_OK ||
+      result == ATTENDANCE_RESULT_OFF_DUTY_OK ||
+      result == ATTENDANCE_RESULT_LATE ||
+      result == ATTENDANCE_RESULT_EARLY)
+  {
+    if (user_daily_state != NULL) {
+      if (result == ATTENDANCE_RESULT_ON_DUTY_OK || result == ATTENDANCE_RESULT_LATE) {
+        user_daily_state->has_on_duty = 1;
+        COM_DEBUG("用户 %lu 上班状态已更新\r\n", user.user_id);
+      } else if (result == ATTENDANCE_RESULT_OFF_DUTY_OK || result == ATTENDANCE_RESULT_EARLY) {
+        user_daily_state->has_off_duty = 1;
+        COM_DEBUG("用户 %lu 下班状态已更新\r\n", user.user_id);
+      }
+    }
+  }
 }
 
 /**
@@ -301,10 +469,37 @@ static void RuntimeManager_HandleFingerCheckIn(uint16_t finger_id)
     return;
   }
 
-  // 获取排班 + 判定考勤结果
-  schedule = Attendance_GetSchedule();
-  result = Attendance_JudgeEvent(&schedule, &g_runtime.daily_state, &g_runtime.now);
+  // 获取用户特定的每日状态
+  UserDailyStateTypeDef* user_daily_state = GetUserDailyStateOrCreate(user.user_id);
+  if(user_daily_state == NULL) {
+    // 如果无法获取用户状态，使用全局状态作为备用
+    schedule = Attendance_GetSchedule();
+    result = Attendance_JudgeEvent(&schedule, &g_runtime.daily_state, &g_runtime.now);
+  } else {
+    // 创建临时的AttendanceDailyStateTypeDef结构用于判断
+    AttendanceDailyStateTypeDef temp_daily_state;
+    temp_daily_state.ymd = user_daily_state->ymd;
+    temp_daily_state.has_on_duty = user_daily_state->has_on_duty;
+    temp_daily_state.has_off_duty = user_daily_state->has_off_duty;
+    
+    schedule = Attendance_GetSchedule();
+    result = Attendance_JudgeEvent(&schedule, &temp_daily_state, &g_runtime.now);
+  }
+
+  // 统一事件分发
   RuntimeManager_PublishEvent(&user, ATTENDANCE_VERIFY_FINGER, result);
+
+  // 更新用户特定的每日状态
+  if (user_daily_state != NULL) {
+    if (result == ATTENDANCE_RESULT_ON_DUTY_OK || result == ATTENDANCE_RESULT_LATE) {
+      user_daily_state->has_on_duty = 1;
+    } else if (result == ATTENDANCE_RESULT_OFF_DUTY_OK || result == ATTENDANCE_RESULT_EARLY) {
+      user_daily_state->has_off_duty = 1;
+    }
+  }
+  
+  // 更新全局统计
+  g_runtime.today_count++;
 }
 
 /**
@@ -505,7 +700,7 @@ static void RuntimeManager_HandleEnrollMode(KeyEventTypeDef key_event)
       snprintf(display.line4, sizeof(display.line4), "Bind done");
       RuntimeManager_SetDisplay(&display);
       // 播放录入成功语音
-      DAC_Sound_Success();   // 录入成功用成功音
+     AudioFlashStorage_PlayAudio("enroll_ok.bin");  // 播放"录入成功"音频
       
       COM_DEBUG("用户注册成功，准备发送到ESP");
       // 上报新增用户到 ESP/WiFi 模块，方便小程序同步人员信息
@@ -767,7 +962,6 @@ void RuntimeManager_DisplayTaskStep(void)
   {
     g_runtime.last_idle_log_tick = now_tick;
     /* 保留最小调试输出：当前页码 */
-    COM_DEBUG("OLED page=%d", g_runtime.display.page);
   }
 }
 
@@ -803,7 +997,7 @@ void RuntimeManager_TimeSyncTaskStep(void)
     snprintf(display.line1, sizeof(display.line1), "TIME SYNC OK");
     snprintf(display.line2, sizeof(display.line2), "RTC Updated");
     RuntimeManager_SetDisplay(&display);
-    DAC_Sound_Success();   // 时间同步成功也用成功音
+    AudioFlashStorage_PlayAudio("time_sync.bin");  // 播放"时间同步"音频
   }
   // 更新上一轮时钟状态
   g_runtime.last_rtc_valid = rtc_valid;
